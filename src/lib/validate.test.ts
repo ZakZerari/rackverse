@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
+import { PDU_0U, SERVER_1U, SERVER_2U, SERVER_BIG, SHALLOW_1U, SWITCH_1U } from "@/lib/__fixtures__/devices";
 import { CATALOG } from "@/data/catalog";
 import type { Design, Placement, Rack, Requirements } from "@/lib/types";
 import { validateDesign } from "@/lib/validate";
@@ -42,44 +43,44 @@ describe("validateDesign — one case per rule", () => {
 
   it("RACK_OUT_OF_BOUNDS when a device extends past the top of the rack", () => {
     const d = design(
-      [{ id: "p1", catalogId: "srv-2u-standard", startU: 42, face: "front" }],
+      [{ id: "p1", catalogId: SERVER_2U.id, startU: 42, face: "front" }],
       { heightU: 42 }
     );
     expect(codes(validateDesign(d, reqs()))).toContain("RACK_OUT_OF_BOUNDS");
   });
 
   it("RACK_OUT_OF_BOUNDS when startU is below 1", () => {
-    const d = design([{ id: "p1", catalogId: "srv-1u-basic", startU: 0, face: "front" }]);
+    const d = design([{ id: "p1", catalogId: SERVER_1U.id, startU: 0, face: "front" }]);
     expect(codes(validateDesign(d, reqs()))).toContain("RACK_OUT_OF_BOUNDS");
   });
 
   it("RACK_OVERLAP for two devices on the same face in the same U range", () => {
     const d = design([
-      { id: "p1", catalogId: "srv-1u-basic", startU: 10, face: "front" },
-      { id: "p2", catalogId: "srv-1u-basic", startU: 10, face: "front" },
+      { id: "p1", catalogId: SERVER_1U.id, startU: 10, face: "front" },
+      { id: "p2", catalogId: SERVER_1U.id, startU: 10, face: "front" },
     ]);
     expect(codes(validateDesign(d, reqs()))).toContain("RACK_OVERLAP");
   });
 
   it("RACK_OVERLAP when a full-depth device conflicts with the opposite face", () => {
     const d = design([
-      { id: "p1", catalogId: "srv-1u-basic", startU: 10, face: "front" }, // fullDepth
-      { id: "p2", catalogId: "patch-1u-24", startU: 10, face: "rear" }, // not fullDepth
+      { id: "p1", catalogId: SERVER_1U.id, startU: 10, face: "front" }, // fullDepth
+      { id: "p2", catalogId: SHALLOW_1U.id, startU: 10, face: "rear" }, // not fullDepth
     ]);
     expect(codes(validateDesign(d, reqs()))).toContain("RACK_OVERLAP");
   });
 
   it("no RACK_OVERLAP for two non-full-depth devices on opposite faces in the same U range", () => {
     const d = design([
-      { id: "p1", catalogId: "sw-1u-24", startU: 10, face: "front" },
-      { id: "p2", catalogId: "patch-1u-24", startU: 10, face: "rear" },
+      { id: "p1", catalogId: SWITCH_1U.id, startU: 10, face: "front" },
+      { id: "p2", catalogId: SHALLOW_1U.id, startU: 10, face: "rear" },
     ]);
     expect(codes(validateDesign(d, reqs()))).not.toContain("RACK_OVERLAP");
   });
 
   it("DEPTH_EXCEEDED when a device is deeper than the rack's mounting depth", () => {
     const d = design(
-      [{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }],
+      [{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }],
       { mountingDepthMm: 400 }
     );
     expect(codes(validateDesign(d, reqs()))).toContain("DEPTH_EXCEEDED");
@@ -87,7 +88,7 @@ describe("validateDesign — one case per rule", () => {
 
   it("WEIGHT_EXCEEDED when total weight exceeds the rack's max load", () => {
     const d = design(
-      [{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }],
+      [{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }],
       { maxLoadKg: 5 }
     );
     expect(codes(validateDesign(d, reqs()))).toContain("WEIGHT_EXCEEDED");
@@ -95,19 +96,22 @@ describe("validateDesign — one case per rule", () => {
 
   it("POWER_BUDGET_EXCEEDED when total draw exceeds the power budget", () => {
     const d = design(
-      [{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }],
+      [{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }],
       { powerBudgetW: 100 }
     );
     expect(codes(validateDesign(d, reqs()))).toContain("POWER_BUDGET_EXCEEDED");
   });
 
   it("POWER_HEADROOM_LOW (soft) when draw is over 80% of budget but not over it", () => {
+    // Derived from the fixture's real draw so this stays a 90%-utilisation
+    // case no matter which device the catalog yields.
+    const totalDraw = SERVER_1U.powerW * 2;
     const d = design(
       [
-        { id: "p1", catalogId: "srv-1u-dual", startU: 1, face: "front" }, // 450W
-        { id: "p2", catalogId: "srv-1u-dual", startU: 2, face: "front" }, // 450W -> 900W total
+        { id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" },
+        { id: "p2", catalogId: SERVER_1U.id, startU: 2, face: "front" },
       ],
-      { powerBudgetW: 1000 }
+      { powerBudgetW: Math.round(totalDraw / 0.9) }
     );
     const violations = validateDesign(d, reqs());
     expect(codes(violations)).toContain("POWER_HEADROOM_LOW");
@@ -116,14 +120,14 @@ describe("validateDesign — one case per rule", () => {
   });
 
   it("PDU_OUTLETS_INSUFFICIENT when a server has nowhere to plug in", () => {
-    const d = design([{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }]);
+    const d = design([{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }]);
     expect(codes(validateDesign(d, reqs()))).toContain("PDU_OUTLETS_INSUFFICIENT");
   });
 
   it("REDUNDANCY_SINGLE_FEED when only one feed is populated", () => {
     const d = design([
-      { id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" },
-      { id: "p2", catalogId: "pdu-0u-24", startU: 1, face: "rear", feed: "A" },
+      { id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" },
+      { id: "p2", catalogId: PDU_0U.id, startU: 1, face: "rear", feed: "A" },
     ]);
     expect(codes(validateDesign(d, reqs({ redundantPower: true })))).toContain(
       "REDUNDANCY_SINGLE_FEED"
@@ -132,9 +136,9 @@ describe("validateDesign — one case per rule", () => {
 
   it("no REDUNDANCY_SINGLE_FEED when both feeds can independently carry the full load", () => {
     const d = design([
-      { id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }, // 300W
-      { id: "p2", catalogId: "pdu-0u-24", startU: 1, face: "rear", feed: "A" }, // 7000W capacity
-      { id: "p3", catalogId: "pdu-0u-24", startU: 2, face: "rear", feed: "B" }, // 7000W capacity
+      { id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }, // 300W
+      { id: "p2", catalogId: PDU_0U.id, startU: 1, face: "rear", feed: "A" }, // 7000W capacity
+      { id: "p3", catalogId: PDU_0U.id, startU: 2, face: "rear", feed: "B" }, // 7000W capacity
     ]);
     expect(codes(validateDesign(d, reqs({ redundantPower: true })))).not.toContain(
       "REDUNDANCY_SINGLE_FEED"
@@ -142,24 +146,24 @@ describe("validateDesign — one case per rule", () => {
   });
 
   it("NETWORK_PORTS_INSUFFICIENT when no switch is present for a server's NICs", () => {
-    const d = design([{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }]);
+    const d = design([{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }]);
     expect(codes(validateDesign(d, reqs()))).toContain("NETWORK_PORTS_INSUFFICIENT");
   });
 
   it("BUDGET_EXCEEDED when total cost exceeds the stated budget", () => {
-    const d = design([{ id: "p1", catalogId: "srv-2u-standard", startU: 1, face: "front" }]);
+    const d = design([{ id: "p1", catalogId: SERVER_2U.id, startU: 1, face: "front" }]);
     expect(codes(validateDesign(d, reqs({ budgetUsd: 100 })))).toContain("BUDGET_EXCEEDED");
   });
 
   it("no BUDGET_EXCEEDED when budget is not provided", () => {
-    const d = design([{ id: "p1", catalogId: "srv-4u-gpu", startU: 1, face: "front" }]);
+    const d = design([{ id: "p1", catalogId: SERVER_BIG.id, startU: 1, face: "front" }]);
     expect(codes(validateDesign(d, reqs({ budgetUsd: undefined })))).not.toContain(
       "BUDGET_EXCEEDED"
     );
   });
 
   it("REQUIREMENT_MISSING when a required category quantity is not met", () => {
-    const d = design([{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }]);
+    const d = design([{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }]);
     const violations = validateDesign(
       d,
       reqs({ required: [{ category: "server", qty: 2 }] })
@@ -190,38 +194,31 @@ describe("validateDesign — property tests", () => {
   });
 
   it("moving a device into free space never creates RACK_OVERLAP", () => {
+    const heights = [SERVER_1U.id, SERVER_2U.id, SERVER_BIG.id];
     fc.assert(
-      fc.property(
-        fc.constantFrom("srv-1u-basic", "srv-2u-standard", "srv-4u-gpu"),
-        fc.constantFrom("srv-1u-basic", "srv-2u-standard", "srv-4u-gpu"),
-        (fixedId, movingId) => {
-          const fixedItem = CATALOG.find((c) => c.id === fixedId)!;
-          const movingItem = CATALOG.find((c) => c.id === movingId)!;
-          const fixedEnd = fixedItem.heightU; // fixed device occupies U1..fixedEnd
-          const farAwayStart = fixedEnd + 20;
-          const freeSlotStart = fixedEnd + 1; // immediately above the fixed device, guaranteed free
+      fc.property(fc.constantFrom(...heights), fc.constantFrom(...heights), (fixedId, movingId) => {
+        const fixedItem = CATALOG.find((c) => c.id === fixedId)!;
+        const fixedEnd = fixedItem.heightU; // fixed device occupies U1..fixedEnd
+        const farAwayStart = fixedEnd + 20;
+        const freeSlotStart = fixedEnd + 1; // immediately above the fixed device, guaranteed free
 
-          const d = design(
-            [
-              { id: "fixed", catalogId: fixedId, startU: 1, face: "front" },
-              { id: "moving", catalogId: movingId, startU: farAwayStart, face: "front" },
-            ],
-            { heightU: 100 }
-          );
+        const d = design(
+          [
+            { id: "fixed", catalogId: fixedId, startU: 1, face: "front" },
+            { id: "moving", catalogId: movingId, startU: farAwayStart, face: "front" },
+          ],
+          { heightU: 100 }
+        );
 
-          const moved: Design = {
-            ...d,
-            placements: d.placements.map((p) =>
-              p.id === "moving" ? { ...p, startU: freeSlotStart } : p
-            ),
-          };
+        const moved: Design = {
+          ...d,
+          placements: d.placements.map((p) =>
+            p.id === "moving" ? { ...p, startU: freeSlotStart } : p
+          ),
+        };
 
-          expect(
-            codes(validateDesign(moved, reqs())).includes("RACK_OVERLAP")
-          ).toBe(false);
-          void movingItem;
-        }
-      )
+        expect(codes(validateDesign(moved, reqs())).includes("RACK_OVERLAP")).toBe(false);
+      })
     );
   });
 

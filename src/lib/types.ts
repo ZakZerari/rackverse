@@ -12,8 +12,14 @@ export type Category =
   | "patch"
   | "blank";
 
+/** Which numeric fields we estimated rather than read from the source data. */
+export type EstimatedField = "depthMm" | "weightKg" | "powerW" | "powerCapacityW" | "priceUsd";
+
 export interface CatalogItem {
   id: string;
+  /** Real manufacturer, e.g. "Dell". "Generic" for unbranded panels. */
+  manufacturer: string;
+  /** Real model name, e.g. "PowerEdge R640". */
   name: string;
   category: Category;
   heightU: number;
@@ -34,7 +40,13 @@ export interface CatalogItem {
   /** If true, this device occupies the full rack depth and blocks the opposite face. */
   fullDepth: boolean;
   priceUsd: number;
-  illustrative: true;
+  /**
+   * Provenance, because this tool's whole premise is not overclaiming.
+   * `netbox` = geometry/weight/ports came from the CC0 NetBox device-type
+   * library; `estimated` lists the fields we filled in ourselves.
+   */
+  source: "netbox" | "generic";
+  estimated: EstimatedField[];
 }
 
 export interface Placement {

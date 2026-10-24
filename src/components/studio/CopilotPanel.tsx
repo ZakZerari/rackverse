@@ -209,25 +209,40 @@ function SelectedDeviceCard() {
   const item = selected ? getCatalogItem(selected.catalogId) : undefined;
   if (!selected || !item) return null;
 
-  const specs: [string, string][] = [
-    ["Position", `U${selected.startU} · ${selected.face}`],
-    ["Size", `${item.heightU}U · ${item.depthMm}mm deep`],
-    ["Power", item.powerW > 0 ? `${item.powerW}W draw` : `${item.powerCapacityW ?? 0}W supply`],
-    ["Weight", `${item.weightKg}kg`],
-    ["Price", `$${item.priceUsd.toLocaleString()}`],
+  const specs: [string, string, boolean][] = [
+    ["Position", `U${selected.startU} · ${selected.face}`, false],
+    ["Size", `${item.heightU}U · ${item.depthMm}mm`, item.estimated.includes("depthMm")],
+    [
+      "Power",
+      item.powerW > 0 ? `${item.powerW}W draw` : `${item.powerCapacityW ?? 0}W supply`,
+      item.estimated.includes("powerW") || item.estimated.includes("powerCapacityW"),
+    ],
+    ["Weight", `${item.weightKg}kg`, item.estimated.includes("weightKg")],
+    ["Price", `$${item.priceUsd.toLocaleString()}`, item.estimated.includes("priceUsd")],
   ];
 
   return (
     <div className="rounded-md border border-border bg-card p-2.5">
-      <p className="text-xs font-semibold">{item.name}</p>
+      <p className="text-xs font-semibold">
+        <span className="text-muted-foreground">{item.manufacturer}</span> {item.name}
+      </p>
       <dl className="mt-1.5 space-y-0.5">
-        {specs.map(([label, value]) => (
+        {specs.map(([label, value, isEstimated]) => (
           <div key={label} className="flex justify-between gap-2 text-[11px]">
             <dt className="text-muted-foreground">{label}</dt>
-            <dd className="font-mono tabular text-foreground">{value}</dd>
+            <dd className="font-mono tabular text-foreground">
+              {value}
+              {isEstimated && <span className="ml-1 text-[9px] text-[var(--warn)]">est</span>}
+            </dd>
           </div>
         ))}
       </dl>
+      {item.source === "netbox" && (
+        <p className="mt-1.5 border-t border-border/60 pt-1.5 text-[10px] leading-snug text-muted-foreground">
+          Specs from the NetBox device-type library (CC0).
+          {item.estimated.length > 0 && ` Fields marked "est" are our estimates.`}
+        </p>
+      )}
       <Button
         size="xs"
         variant="destructive"

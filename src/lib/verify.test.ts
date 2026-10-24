@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PDU_0U, SERVER_1U } from "@/lib/__fixtures__/devices";
 import type { Design, Rack, Requirements } from "@/lib/types";
 import { verifyPatch } from "@/lib/verify";
 
@@ -28,12 +29,12 @@ describe("verifyPatch", () => {
   it("accepts a patch that fixes a hard violation (adds the missing PDU)", () => {
     const design: Design = {
       rack: rack(),
-      placements: [{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }],
+      placements: [{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }],
       version: 1,
     };
     const result = verifyPatch(
       design,
-      { ops: [{ op: "add", catalogId: "pdu-0u-24", startU: 1, face: "rear" }], rationale: "add PDU" },
+      { ops: [{ op: "add", catalogId: PDU_0U.id, startU: 1, face: "rear" }], rationale: "add PDU" },
       reqs()
     );
     expect(result.accepted).toBe(true);
@@ -43,13 +44,13 @@ describe("verifyPatch", () => {
   it("rejects a patch that introduces a new hard violation", () => {
     const design: Design = {
       rack: rack(),
-      placements: [{ id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" }],
+      placements: [{ id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" }],
       version: 1,
     };
     // Adding an overlapping device doesn't fix the missing PDU/switch and adds RACK_OVERLAP.
     const result = verifyPatch(
       design,
-      { ops: [{ op: "add", catalogId: "srv-1u-basic", startU: 1, face: "front" }], rationale: "bad" },
+      { ops: [{ op: "add", catalogId: SERVER_1U.id, startU: 1, face: "front" }], rationale: "bad" },
       reqs()
     );
     expect(result.accepted).toBe(false);

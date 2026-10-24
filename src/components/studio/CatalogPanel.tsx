@@ -43,15 +43,18 @@ function CatalogCard({ catalogId }: { catalogId: string }) {
         isDragging ? "opacity-40" : "hover:border-muted-foreground/50"
       }`}
     >
-      <span className="h-6 w-0.5 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_ACCENT[item.category] }} />
+      <span className="h-7 w-0.5 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_ACCENT[item.category] }} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[11px] font-medium text-foreground">{item.name}</p>
+        <p className="truncate text-[11px] font-medium text-foreground">
+          <span className="text-muted-foreground">{item.manufacturer}</span> {item.name}
+        </p>
         <p className="font-mono text-[10px] tabular text-muted-foreground">
           {item.heightU}U
           {item.powerW > 0 ? ` · ${item.powerW}W` : ""}
-          {item.powerCapacityW ? ` · ${item.powerCapacityW}W cap` : ""}
+          {item.powerCapacityW ? ` · ${(item.powerCapacityW / 1000).toFixed(1)}kW cap` : ""}
           {item.netPorts ? ` · ${item.netPorts}p` : ""}
           {item.outlets ? ` · ${item.outlets} out` : ""}
+          {item.weightKg ? ` · ${item.weightKg}kg` : ""}
         </p>
       </div>
       <span className="shrink-0 font-mono text-[10px] tabular text-muted-foreground">

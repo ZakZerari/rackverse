@@ -33,7 +33,7 @@ prompt ─▶ RequirementsAgent ─▶ RackArchitect ─▶ validate() ─┬─
 ```
 
 - `src/lib/types.ts` — the shared `Design` model used by the editor, validator, agents, and exporter.
-- `src/data/catalog.ts` — ~25 illustrative rack items. Agents reference `catalogId`s only; they can never invent a device's specs.
+- `src/data/catalog.ts` — **generated**, 39 real devices (see Equipment data). Agents reference `catalogId`s only; they can never invent a device's specs.
 - `src/lib/validate.ts` — the deterministic validator. Pure functions, heavily unit-tested. Source of truth for whether a design is valid — never the model.
 - `src/lib/patch.ts` / `src/lib/verify.ts` — applies an AI-proposed patch to a *copy*, then deterministically accepts or rejects it.
 - `src/lib/llm.ts` — the **only** module that calls an LLM. Routes every call through Mubit, streams responses, and normalises our Zod schemas into Gemini's supported JSON-schema subset.
@@ -50,6 +50,23 @@ What the problem *did* need wasn't orchestration machinery, it was **observabili
 ### Parallel repair sampling
 
 Each repair round samples `REPAIR_CANDIDATES` patches **concurrently** and keeps the first one the deterministic Verifier accepts. Sequential retries cost one round trip each; sampling costs one round trip total and gives the Verifier a choice rather than a single take-it-or-leave-it proposal. You can watch both candidates land in the activity timeline.
+
+## Equipment data
+
+The catalog is **real hardware**, not invented placeholders: Dell PowerEdge, HPE ProLiant, Supermicro, Arista, Cisco, Juniper, APC, Eaton, Synology and friends. `npm run build-catalog` regenerates `src/data/catalog.ts` from the [NetBox device-type library](https://github.com/netbox-community/devicetype-library) — **CC0-1.0, public domain**, ~12,400 device types, actively maintained. No attribution is required; it's given because it's earned.
+
+From that source, verbatim: manufacturer, model, rack units, full-depth flag, weight, PSU count, and port counts (27/39 devices have a real published `maximum_draw`, 34/39 a real weight).
+
+What the library does **not** carry, we estimate — and every item records exactly which fields those are in an `estimated` array, surfaced in the UI with an `est` marker next to the value:
+
+| Field | Why estimated |
+|---|---|
+| `priceUsd` | No open dataset of list prices exists, anywhere. All prices are ours. |
+| `depthMm` | The library only records a full-depth boolean, not millimetres. |
+| `powerW` | Only ~44% of rack devices publish `maximum_draw` — notably **0%** of Dell/Cisco/Lenovo/Supermicro 2U+ servers, and no GPU-class server at all. |
+| `powerCapacityW` | Derived from the inlet plug standard (amps × volts × 0.8 derate) where absent. |
+
+Two traps worth knowing if you extend the picks: `weight_unit` is usually grams or pounds rather than kg, and multiple `power-ports` are *redundant feeds*, so draw must be aggregated with `max()`, never summed.
 
 ## Performance
 

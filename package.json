@@ -13,7 +13,8 @@
     "smoke-mubit": "tsx scripts/smoke-mubit.ts",
     "pick-model": "tsx scripts/pick-model.ts",
     "train-traffic": "tsx scripts/train-traffic.ts",
-    "bench": "tsx scripts/bench.ts"
+    "bench": "tsx scripts/bench.ts",
+    "build-catalog": "tsx scripts/build-catalog.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -23,6 +24,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.0",
     "lucide-react": "^1.61.0",
+    "motion": "^14.6.0",
     "next": "16.4.3",
     "openai": "^7.43.0",
     "p-limit": "^7.3.3",
@@ -46,6 +48,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "yaml": "^2.9.1"
   }
 }

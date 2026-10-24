@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { AnimatePresence, motion } from "motion/react";
 import { getCatalogItem } from "@/data/catalog";
 import { useRackStore } from "@/lib/store";
 import type { Category, Placement } from "@/lib/types";
+import { Rack3D } from "@/components/studio/Rack3D";
 
 const U_PX = 22;
 
@@ -61,15 +63,26 @@ function PlacementBlock({ placement, violated }: { placement: Placement; violate
   const height = item.heightU * U_PX - 3;
 
   return (
-    <div
+    <motion.div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      // Slide in from the right as the Architect places each device; a tiny
+      // per-U stagger makes a generated rack read as "being assembled".
+      initial={{ opacity: 0, x: 24 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -16 }}
+      transition={{
+        type: "spring",
+        stiffness: 420,
+        damping: 34,
+        delay: isDragging ? 0 : Math.min(placement.startU * 0.015, 0.3),
+      }}
       onClick={(e) => {
         e.stopPropagation();
         selectPlacement(placement.id);
       }}
-      className={`group absolute left-9 right-0 flex cursor-grab items-center gap-2 overflow-hidden rounded-[3px] border bg-card pl-0 pr-2 text-[11px] shadow-sm transition-shadow active:cursor-grabbing ${
+      className={`group absolute left-9 right-0 flex cursor-grab items-center gap-2 overflow-hidden rounded-[3px] border bg-card pl-0 pr-2 text-[11px] shadow-sm active:cursor-grabbing ${
         violated
           ? "border-destructive/70 ring-1 ring-destructive/40"
           : selected
@@ -97,7 +110,7 @@ function PlacementBlock({ placement, violated }: { placement: Placement; violate
       <span className="shrink-0 rounded-sm bg-muted px-1 font-mono text-[10px] tabular text-muted-foreground">
         {item.heightU}U
       </span>
-    </div>
+    </motion.div>
   );
 }
 
@@ -191,6 +204,7 @@ export function RackElevation() {
   const selectPlacement = useRackStore((s) => s.selectPlacement);
   const violatedIds = useRackStore((s) => s.violatedPlacementIds);
 
+  const [view, setView] = useState<"2d" | "3d">("2d");
   const rows = useMemo(
     () => Array.from({ length: design.rack.heightU }, (_, i) => design.rack.heightU - i),
     [design.rack.heightU]
@@ -218,43 +232,92 @@ export function RackElevation() {
 
   return (
     <section className="flex min-h-0 flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b border-border bg-panel px-3 py-2">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-panel px-3 py-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-xs font-semibold">{design.rack.name}</h2>
           <span className="font-mono text-[10px] tabular text-muted-foreground">
             {design.rack.heightU}U · {design.rack.mountingDepthMm}mm · v{design.version}
           </span>
         </div>
-        <div className="flex shrink-0 rounded-md border border-border p-0.5">
-          {(["front", "rear"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFace(f)}
-              className={`rounded-[4px] px-2.5 py-0.5 text-[11px] capitalize transition-colors ${
-                face === f ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Segmented
+            options={[
+              { value: "2d", label: "2D" },
+              { value: "3d", label: "3D" },
+            ]}
+            value={view}
+            onChange={(v) => setView(v as "2d" | "3d")}
+          />
+          {view === "2d" && (
+            <Segmented
+              options={[
+                { value: "front", label: "Front" },
+                { value: "rear", label: "Rear" },
+              ]}
+              value={face}
+              onChange={(v) => setFace(v as "front" | "rear")}
+            />
+          )}
         </div>
       </header>
 
-      <div ref={scrollRef} className="scroll-region flex-1 p-4" onClick={() => selectPlacement(null)}>
-        <div className="mx-auto" style={{ maxWidth: 380 }}>
-          <div className="relative rounded-md border border-border bg-panel/60 p-1.5">
-            <div className="relative" style={{ height: design.rack.heightU * U_PX }}>
-              {rows.map((u) => (
-                <RowSlot key={u} startU={u} />
-              ))}
-              {facePlacements.map((p) => (
-                <PlacementBlock key={p.id} placement={p} violated={violatedIds.has(p.id)} />
-              ))}
-            </div>
-          </div>
-          <ZeroUTray />
+      {view === "3d" ? (
+        <div className="relative min-h-0 flex-1">
+          <Rack3D />
         </div>
-      </div>
+      ) : (
+        <div ref={scrollRef} className="scroll-region flex-1 p-4" onClick={() => selectPlacement(null)}>
+          <div className="mx-auto" style={{ maxWidth: 380 }}>
+            <div className="relative rounded-md border border-border bg-panel/60 p-1.5">
+              <div className="relative" style={{ height: design.rack.heightU * U_PX }}>
+                {rows.map((u) => (
+                  <RowSlot key={u} startU={u} />
+                ))}
+                <AnimatePresence initial={false}>
+                  {facePlacements.map((p) => (
+                    <PlacementBlock key={p.id} placement={p} violated={violatedIds.has(p.id)} />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+            <ZeroUTray />
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function Segmented({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex rounded-md border border-border p-0.5">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          className="relative rounded-[4px] px-2.5 py-0.5 text-[11px] transition-colors"
+        >
+          {value === option.value && (
+            <motion.span
+              layoutId={`segmented-${options.map((o) => o.value).join("-")}`}
+              className="absolute inset-0 rounded-[4px] bg-secondary"
+              transition={{ type: "spring", stiffness: 500, damping: 38 }}
+            />
+          )}
+          <span className={`relative ${value === option.value ? "text-foreground" : "text-muted-foreground"}`}>
+            {option.label}
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }

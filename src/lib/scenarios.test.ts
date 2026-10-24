@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { breakDesign, generateRequirements } from "@/lib/scenarios";
+import { PDU_0U, SERVER_1U, SWITCH_1U } from "@/lib/__fixtures__/devices";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import type { Design, Requirements } from "@/lib/types";
 
@@ -40,10 +41,10 @@ function validDesign(): Design {
   return {
     rack: { id: "r1", name: "R", heightU: 42, mountingDepthMm: 1000, maxLoadKg: 500, powerBudgetW: 10000 },
     placements: [
-      { id: "p1", catalogId: "srv-1u-basic", startU: 1, face: "front" },
-      { id: "p2", catalogId: "srv-1u-basic", startU: 2, face: "front" },
-      { id: "p3", catalogId: "sw-1u-24", startU: 3, face: "front" },
-      { id: "p4", catalogId: "pdu-0u-24", startU: 1, face: "rear" },
+      { id: "p1", catalogId: SERVER_1U.id, startU: 1, face: "front" },
+      { id: "p2", catalogId: SERVER_1U.id, startU: 2, face: "front" },
+      { id: "p3", catalogId: SWITCH_1U.id, startU: 3, face: "front" },
+      { id: "p4", catalogId: PDU_0U.id, startU: 1, face: "rear" },
     ],
     version: 1,
   };
