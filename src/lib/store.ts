@@ -1,4 +1,11 @@
 import { create } from "zustand";
+import {
+  extractRationale,
+  newTurn,
+  type TimelineItem,
+  type Turn,
+  type TurnKind,
+} from "@/lib/conversation";
 import type { RunEvent } from "@/lib/events";
 import type { RepairOnlyResult } from "@/lib/orchestrate";
 import { applyPatch } from "@/lib/patch";
@@ -25,7 +32,7 @@ export function defaultDesign(): Design {
   };
 }
 
-/** One entry in the live Agent Activity timeline. */
+/** Flattened view of all turns, for the bottom Agent Activity timeline. */
 export interface ActivityEntry {
   id: string;
   label: string;
@@ -33,6 +40,48 @@ export interface ActivityEntry {
   status: "running" | "ok" | "rejected" | "error";
   latencyMs?: number;
   tokens?: number;
+}
+
+export function flattenActivity(turns: Turn[]): ActivityEntry[] {
+  return turns.flatMap((turn) =>
+    turn.items.map((item): ActivityEntry => {
+      switch (item.kind) {
+        case "agent":
+          return {
+            id: item.id,
+            label: item.agent,
+            detail: item.rationale ?? item.error ?? item.note,
+            status: item.status === "running" ? "running" : item.status === "ok" ? "ok" : "error",
+            latencyMs: item.latencyMs,
+            tokens: item.tokens,
+          };
+        case "validator":
+          return {
+            id: item.id,
+            label: "Validator",
+            detail:
+              item.violations.length === 0
+                ? "No violations."
+                : `${item.hardCount} hard, ${item.violations.length - item.hardCount} soft.`,
+            status: item.hardCount === 0 ? "ok" : "rejected",
+          };
+        case "verifier":
+          return {
+            id: item.id,
+            label: "Verifier",
+            detail: item.reason,
+            status: item.accepted ? "ok" : "rejected",
+          };
+        case "note":
+          return {
+            id: item.id,
+            label: item.label,
+            detail: item.detail,
+            status: item.tone === "warn" ? "rejected" : "ok",
+          };
+      }
+    })
+  );
 }
 
 interface RackStore {
@@ -46,13 +95,13 @@ interface RackStore {
   violatedPlacementIds: Set<string>;
   revalidate: () => void;
 
-  // Live run state, driven by streamed RunEvents.
-  activity: ActivityEntry[];
+  // The Copilot conversation, driven by streamed RunEvents.
+  turns: Turn[];
   isRunning: boolean;
   runningAgent: string | null;
-  streamPreview: string;
+  beginTurn: (kind: TurnKind, prompt: string) => void;
   applyEvent: (event: RunEvent) => void;
-  clearActivity: () => void;
+  clearConversation: () => void;
 
   setFace: (face: Face) => void;
   selectPlacement: (id: string | null) => void;
@@ -83,10 +132,9 @@ export const useRackStore = create<RackStore>((set, get) => ({
   violations: [],
   violatedPlacementIds: new Set(),
 
-  activity: [],
+  turns: [],
   isRunning: false,
   runningAgent: null,
-  streamPreview: "",
 
   revalidate: () => {
     const { design, requirements } = get();
@@ -97,70 +145,91 @@ export const useRackStore = create<RackStore>((set, get) => ({
     });
   },
 
+  beginTurn: (kind, prompt) => set((s) => ({ turns: [...s.turns, newTurn(kind, prompt)], isRunning: true })),
+
   applyEvent: (event) => {
-    const push = (entry: ActivityEntry) => set((s) => ({ activity: [...s.activity, entry] }));
-    const finishRunning = (agent: string, patch: Partial<ActivityEntry>) =>
+    const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    /** All timeline mutation goes through the turn currently in flight. */
+    const patchCurrentTurn = (fn: (turn: Turn) => Turn) =>
       set((s) => {
-        const index = [...s.activity].reverse().findIndex((a) => a.label === agent && a.status === "running");
-        if (index === -1) return s;
-        const realIndex = s.activity.length - 1 - index;
-        const activity = [...s.activity];
-        activity[realIndex] = { ...activity[realIndex], ...patch };
-        return { activity };
+        if (s.turns.length === 0) return s;
+        const turns = [...s.turns];
+        turns[turns.length - 1] = fn(turns[turns.length - 1]);
+        return { turns };
+      });
+
+    const addItem = (item: TimelineItem) =>
+      patchCurrentTurn((turn) => ({ ...turn, items: [...turn.items, item] }));
+
+    /** Update the most recent still-running step for this agent. */
+    const patchRunningAgent = (agent: string, fn: (item: TimelineItem & { kind: "agent" }) => TimelineItem) =>
+      patchCurrentTurn((turn) => {
+        const index = turn.items.findLastIndex(
+          (i) => i.kind === "agent" && i.agent === agent && i.status === "running"
+        );
+        if (index === -1) return turn;
+        const items = [...turn.items];
+        items[index] = fn(items[index] as TimelineItem & { kind: "agent" });
+        return { ...turn, items };
       });
 
     switch (event.type) {
       case "run:start":
-        set({ isRunning: true, runningAgent: null, streamPreview: "" });
+        set({ isRunning: true, runningAgent: null });
         break;
 
       case "agent:start":
-        set({ runningAgent: event.agent, streamPreview: "" });
-        push({
-          id: `${event.agent}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          label: event.agent,
-          detail: event.note,
+        set({ runningAgent: event.agent });
+        addItem({
+          kind: "agent",
+          id: uid(event.agent),
+          agent: event.agent,
+          note: event.note,
           status: "running",
+          output: "",
         });
         break;
 
       case "agent:token":
-        set((s) => ({ streamPreview: (s.streamPreview + event.text).slice(-600) }));
+        // Appended in full — this is what keeps an agent's reasoning on screen
+        // after it finishes, instead of vanishing with the spinner.
+        patchRunningAgent(event.agent, (item) => ({ ...item, output: item.output + event.text }));
         break;
 
       case "agent:done":
-        finishRunning(event.agent, {
+        patchRunningAgent(event.agent, (item) => ({
+          ...item,
           status: "ok",
-          detail: event.note ?? "Responded.",
+          rationale: extractRationale(item.output),
           latencyMs: event.latencyMs,
           tokens: (event.promptTokens ?? 0) + (event.completionTokens ?? 0),
-        });
-        set({ runningAgent: null, streamPreview: "" });
+        }));
+        set({ runningAgent: null });
         break;
 
       case "agent:error":
-        finishRunning(event.agent, { status: "error", detail: event.error });
+        patchRunningAgent(event.agent, (item) => ({ ...item, status: "error", error: event.error }));
         set({ runningAgent: null });
         break;
 
       case "validator:result":
-        push({
-          id: `validator-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          label: "Validator",
-          detail:
-            event.violations.length === 0
-              ? "No violations."
-              : `${event.hardCount} hard, ${event.violations.length - event.hardCount} soft.`,
-          status: event.hardCount === 0 ? "ok" : "rejected",
+        addItem({
+          kind: "validator",
+          id: uid("validator"),
+          violations: event.violations,
+          hardCount: event.hardCount,
         });
         break;
 
       case "verifier:decision":
-        push({
-          id: `verifier-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          label: "Verifier",
-          detail: event.reason,
-          status: event.accepted ? "ok" : "rejected",
+        addItem({
+          kind: "verifier",
+          id: uid("verifier"),
+          accepted: event.accepted,
+          reason: event.reason,
+          hardBefore: event.hardBefore,
+          hardAfter: event.hardAfter,
         });
         break;
 
@@ -169,7 +238,7 @@ export const useRackStore = create<RackStore>((set, get) => ({
         get().revalidate();
         break;
 
-      case "run:done":
+      case "run:done": {
         set({
           design: event.design,
           requirements: event.requirements,
@@ -177,43 +246,44 @@ export const useRackStore = create<RackStore>((set, get) => ({
           selectedPlacementId: null,
           isRunning: false,
           runningAgent: null,
-          streamPreview: "",
         });
         get().revalidate();
+        const hard = get().violations.filter((v) => v.severity === "hard").length;
+        patchCurrentTurn((turn) => ({
+          ...turn,
+          status: "done",
+          summary: `${event.design.placements.length} devices · ${
+            hard === 0 ? "all checks passing" : `${hard} hard violation(s)`
+          }`,
+        }));
         break;
+      }
 
       case "repair:proposed":
         set({
           pendingRepair: {
             design: event.design,
-            trace: [
-              {
-                id: `repair-${Date.now()}`,
-                label: "RepairAgent",
-                detail: event.reason,
-                ok: event.accepted,
-              },
-            ],
+            trace: [{ id: uid("repair"), label: "RepairAgent", detail: event.reason, ok: event.accepted }],
           },
           isRunning: false,
           runningAgent: null,
-          streamPreview: "",
         });
+        patchCurrentTurn((turn) => ({
+          ...turn,
+          status: "done",
+          summary: event.accepted ? "Patch ready for review" : "No usable patch found",
+        }));
         break;
 
       case "run:error":
-        push({
-          id: `error-${Date.now()}`,
-          label: "Run failed",
-          detail: event.error,
-          status: "error",
-        });
-        set({ isRunning: false, runningAgent: null, streamPreview: "" });
+        addItem({ kind: "note", id: uid("error"), label: "Run failed", detail: event.error, tone: "warn" });
+        patchCurrentTurn((turn) => ({ ...turn, status: "error", error: event.error }));
+        set({ isRunning: false, runningAgent: null });
         break;
     }
   },
 
-  clearActivity: () => set({ activity: [] }),
+  clearConversation: () => set({ turns: [] }),
 
   setFace: (face) => set({ face }),
   selectPlacement: (id) => set({ selectedPlacementId: id }),
@@ -278,13 +348,22 @@ export const useRackStore = create<RackStore>((set, get) => ({
   breakIt: () => {
     const { design, versions } = get();
     const result = breakDesign(design);
+    const turn = newTurn("break", "Break it");
+    turn.status = "done";
+    turn.summary = result.description;
+    turn.items = [
+      {
+        kind: "note",
+        id: `break-${Date.now()}`,
+        label: "Fault injected",
+        detail: result.description,
+        tone: "warn",
+      },
+    ];
     set({
       design: result.design,
       versions: [...versions, result.design],
-      activity: [
-        ...get().activity,
-        { id: `break-${Date.now()}`, label: "Break it", detail: result.description, status: "rejected" },
-      ],
+      turns: [...get().turns, turn],
     });
     get().revalidate();
   },
@@ -301,17 +380,9 @@ export const useRackStore = create<RackStore>((set, get) => ({
 
   rejectPendingRepair: () => {
     if (!get().pendingRepair) return;
-    set((s) => ({
-      pendingRepair: null,
-      activity: [
-        ...s.activity,
-        {
-          id: `reject-${Date.now()}`,
-          label: "Auto-repair",
-          detail: "Discarded by user — design left unchanged.",
-          status: "rejected",
-        },
-      ],
-    }));
+    const turn = newTurn("repair", "Reject patch");
+    turn.status = "done";
+    turn.summary = "Discarded by user — design left unchanged.";
+    set((s) => ({ pendingRepair: null, turns: [...s.turns, turn] }));
   },
 }));

@@ -17,6 +17,7 @@ export function Toolbar() {
   async function handleAutoRepair() {
     if (repairing) return;
     setRepairing(true);
+    useRackStore.getState().beginTurn("repair", `Auto-repair ${hardCount} violation(s)`);
     try {
       const res = await fetch("/api/repair", {
         method: "POST",

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRackStore, type ActivityEntry } from "@/lib/store";
+import { useMemo, useState } from "react";
+import { flattenActivity, useRackStore, type ActivityEntry } from "@/lib/store";
 import type { Violation } from "@/lib/types";
 
 type Tab = "checks" | "activity";
@@ -15,9 +15,10 @@ const STATUS_STYLE: Record<ActivityEntry["status"], string> = {
 
 export function BottomPanel() {
   const violations = useRackStore((s) => s.violations);
-  const activity = useRackStore((s) => s.activity);
+  const turns = useRackStore((s) => s.turns);
   const isRunning = useRackStore((s) => s.isRunning);
   const [tab, setTab] = useState<Tab>("checks");
+  const activity = useMemo(() => flattenActivity(turns), [turns]);
 
   const hardCount = violations.filter((v) => v.severity === "hard").length;
   const softCount = violations.length - hardCount;

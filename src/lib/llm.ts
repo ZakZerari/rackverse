@@ -89,6 +89,25 @@ function jsonSchemaName(agent: string): string {
   return safe.length > 0 ? safe : "Output";
 }
 
+/**
+ * Gateway hiccups (429 rate limit, 5xx, dropped connection) are worth waiting
+ * out; a schema violation is not — that one needs corrective feedback, not
+ * patience. Telling them apart stops us burning correction attempts on
+ * problems the model never caused.
+ */
+export function isTransientError(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status;
+  if (typeof status === "number") return status === 408 || status === 409 || status === 429 || status >= 500;
+  const message = err instanceof Error ? err.message : String(err);
+  return /ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network/i.test(message);
+}
+
+const TRANSIENT_BACKOFF_MS = [600, 1800, 4000];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export interface CompleteArgs<T> {
   /** Agent name, e.g. "RequirementsAgent". Used for logging and the schema name. */
   agent: string;
@@ -128,6 +147,7 @@ export async function complete<T>({
 
   let userContent = user;
   let lastError: unknown;
+  let transientRetries = 0;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     const startedAt = Date.now();
@@ -187,6 +207,7 @@ export async function complete<T>({
       lastError = err;
       const latencyMs = Date.now() - startedAt;
       const message = err instanceof Error ? err.message : String(err);
+      const transient = isTransientError(err);
 
       logCall({
         ts: new Date().toISOString(),
@@ -195,9 +216,21 @@ export async function complete<T>({
         latencyMs,
         ok: false,
         attempt,
+        transient,
         error: message,
       });
       emit({ type: "agent:error", agent, attempt, error: message });
+
+      if (transient) {
+        // The gateway, not the model. Wait it out without consuming a
+        // correction attempt or polluting the prompt with a bogus "your
+        // response was invalid" note.
+        if (transientRetries >= TRANSIENT_BACKOFF_MS.length) break;
+        await sleep(TRANSIENT_BACKOFF_MS[transientRetries]);
+        transientRetries += 1;
+        attempt -= 1;
+        continue;
+      }
 
       // Feed the failure back as corrective context for the next attempt.
       userContent = `${user}\n\nYour previous response was invalid: ${message}\nReturn ONLY valid JSON matching the required schema.`;

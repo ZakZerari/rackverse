@@ -756,24 +756,31 @@ export function getCatalogItem(id: string): CatalogItem | undefined {
   return CATALOG.find((item) => item.id === id);
 }
 
-/** Compact summary for LLM prompts — ids and specs, no prose. */
+/**
+ * Compact pipe-delimited table for LLM prompts. This goes into every
+ * Architect and Repair call, so size matters twice over: it's the bulk of
+ * each request, and Mubit skips over-long examples when training adapters
+ * ("examples too long to train on"). A JSON-per-line version of this same
+ * data was ~1,900 tokens; this is roughly a quarter of that.
+ */
 export function catalogSummary(): string {
-  return CATALOG.map((c) =>
-    JSON.stringify({
-      id: c.id,
-      name: `${c.manufacturer} ${c.name}`,
-      category: c.category,
-      heightU: c.heightU,
-      depthMm: c.depthMm,
-      weightKg: c.weightKg,
-      powerW: c.powerW,
-      ...(c.powerCapacityW ? { powerCapacityW: c.powerCapacityW } : {}),
-      ...(c.outlets ? { outlets: c.outlets } : {}),
-      ...(c.psuCount ? { psuCount: c.psuCount } : {}),
-      ...(c.netPorts ? { netPorts: c.netPorts } : {}),
-      ...(c.netPortsNeeded ? { netPortsNeeded: c.netPortsNeeded } : {}),
-      fullDepth: c.fullDepth,
-      priceUsd: c.priceUsd,
-    })
-  ).join("\n");
+  const header = "id|cat|U|depth_mm|kg|draw_W|supply_W|outlets|psu|ports|needs_ports|full_depth|usd";
+  const rows = CATALOG.map((c) =>
+    [
+      c.id,
+      c.category,
+      c.heightU,
+      c.depthMm,
+      c.weightKg,
+      c.powerW || "",
+      c.powerCapacityW ?? "",
+      c.outlets ?? "",
+      c.psuCount ?? "",
+      c.netPorts ?? "",
+      c.netPortsNeeded ?? "",
+      c.fullDepth ? "Y" : "N",
+      c.priceUsd,
+    ].join("|")
+  );
+  return [header, ...rows].join("\n");
 }

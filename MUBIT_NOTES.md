@@ -59,6 +59,41 @@ Structured output mode that worked: json_schema
 
 So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` no longer needs to fall back to `json_object` for Gemini. (The call to Mubit's console to visually confirm the call landed there is still something a human needs to do — not something I can check myself.)
 
+## Task fragmentation — why no adapter was training
+
+The console showed **20 tasks for 3 agents**: `RackArchitect part of server`, `…part of server 2`, `3`, `4`, `6`, two `RequirementsAgent` variants, two `RepairAgent` variants, an unnamed `Task 5`. The busiest had 14 calls but **1 kept example** against a threshold of 25. Nothing could ever train.
+
+**Cause: we forked the tasks ourselves.** Per `/guides/tasks-and-sessions`, calls form one task when they share *all* of: instructions, tools, tool choice, output format, model. Over the build we changed:
+
+| Change | Forks? |
+|---|---|
+| `gemini-3.8-flash` → `gemini-3.5-flash-lite` | **Yes** — confirmed: *"the same instructions sent to two different models make two tasks"* (`/guides/model-ids`) |
+| Rewrote the JSON schema (`oneOf`→`anyOf`) | **Probably** — "output format" counts, but the docs never define it. Inference. |
+| Non-streaming → `stream: true` | **Unknown** — `stream` is in neither the identity list nor the exclusions. Undocumented. |
+| Removed `metadata` | **No** — metadata only selects the *session*. |
+
+Task names are literally the first words of the instructions, which is why they all read "…part of a server rack design system". The numeric suffix is undocumented; most likely disambiguation.
+
+There is **no documented way to merge, rename, or re-point tasks**, and no task-management API. The fragmented ones are unrecoverable — the only move is to freeze identity and let clean tasks accumulate.
+
+### What we did about it
+
+- `src/lib/agents/registry.ts` is now the single place every identity-bearing field lives (instructions + schema per agent), with `taskFingerprint()` mirroring Mubit's documented normalisation (whitespace collapsed; numbers/dates/IDs don't split a task).
+- `src/lib/agents/fingerprint.test.ts` **pins those fingerprints**. Change a prompt or schema and the suite fails with "this forks its Mubit task. Update the pin only if that's intended." It caught a real drift the first time it ran.
+- We took **one final deliberate fork** to land everything at once (compact catalog format in the prompts, final schema, final model) — then froze. Expect exactly 3 new tasks from here, plus the smoke test's own.
+
+### Keeping more examples
+
+Documented rules only (`/concepts`):
+- *"A call Mubit accepts for training or testing. Not every recorded call becomes a kept example."*
+- The one hard exclusion: *"A call recorded without its request and reply is never a kept example"* — caused by `x-middleware-store: false` or `x-middleware-record: metadata|off`. We send neither.
+- Some kept examples are deliberately withheld as test cases.
+- Length matters: *"examples too long to train on → Send calls with shorter requests and answers."*
+
+That last one was actionable. The catalog was being inlined as JSON into every Architect and Repair call at **~1,900 tokens**; it's now a pipe-delimited table at **~590 tokens** (3.2× smaller), which is the bulk of each request.
+
+**Still unverified** (not in the docs, flagged rather than guessed): whether streaming suppresses keeping, whether failed/retried calls are excluded, and whether near-identical requests are deduped. If the keep rate stays low with clean tasks, streaming is the first thing to test — it's a one-line switch in `src/lib/llm.ts`.
+
 ## Model choice — this was the whole ballgame
 
 We originally ran on `gemini-3.8-flash` and **every** call took 19-163s. A 44-token prompt returning 12 tokens took 137s. Latency didn't scale with token count, which ruled out generation being the bottleneck.
