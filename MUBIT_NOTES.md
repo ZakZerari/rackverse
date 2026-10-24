@@ -58,3 +58,14 @@ Structured output mode that worked: json_schema
 ```
 
 So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` no longer needs to fall back to `json_object` for Gemini. (The call to Mubit's console to visually confirm the call landed there is still something a human needs to do — not something I can check myself.)
+
+## Latency (confirmed live — plan around this)
+
+Every call through this Mubit→Gemini route has been slow and variable in this environment: individual `RackArchitect`/`RepairAgent` calls ranged **~19s to ~163s**, with most landing in the 100-160s range once the prompt includes the full catalog. Concretely:
+
+- A 2-scenario `train-traffic` run (1 Architect + 1 Repair call per scenario, concurrency 4) took **4.9 minutes**.
+- A 1-train/1-held-out `bench` smoke run (3 scenarios total) took several minutes on its own.
+
+This has real consequences we've designed around rather than discovered too late:
+- **`npm run train-traffic -- --n 60`** (the default) would realistically take **over an hour**, even at concurrency 4 — each scenario can involve two *sequential* slow calls (Architect, then a deliberate break+Repair), and batches are bounded by the slowest member. Both `train-traffic.ts` and `bench.ts` accept flags (`--n`, `--train-n`/`--held-out-n`) specifically so a small sanity run doesn't cost an hour. The full-scale runs are meant to be kicked off deliberately (e.g. live during the Mubit console portion of the demo), not fired automatically.
+- **The live demo** should default to `DEMO_SEED` (cached fixture replay) for the reliable path, with a real live call as the "look, it's actually happening" moment — not the entire 3-minute budget spent waiting on sequential Gemini calls.

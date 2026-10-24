@@ -1,5 +1,49 @@
 import { getCatalogItem } from "@/data/catalog";
-import type { Design, Placement } from "@/lib/types";
+import type { Design, Placement, Requirements } from "@/lib/types";
+
+/** Deterministic PRNG (mulberry32) so a given seed always reproduces the same scenario. */
+function seededRng(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * A varied, deterministic Requirements scenario for a given seed — used by
+ * the benchmark (train seeds 1-99, held-out seeds 1000-1049) and
+ * train-traffic. Ranges per the brief: rack 24-48U, 2-16 servers, 1-3
+ * switches, power 3-12kW, budgets and redundancy on/off, some GPU-heavy.
+ */
+export function generateRequirements(seed: number): Requirements {
+  const rng = seededRng(seed);
+  const rackHeightU = 24 + Math.floor(rng() * 25);
+  const serverQty = 2 + Math.floor(rng() * 15);
+  const switchQty = 1 + Math.floor(rng() * 3);
+  const powerBudgetW = 3000 + Math.floor(rng() * 9000);
+  const redundantPower = rng() < 0.5;
+  const budgetUsd = rng() < 0.7 ? 20000 + Math.floor(rng() * 80000) : undefined;
+  const gpuHeavy = rng() < 0.2;
+
+  return {
+    rackHeightU,
+    powerBudgetW,
+    budgetUsd,
+    redundantPower,
+    required: [
+      {
+        category: "server",
+        qty: serverQty,
+        notes: gpuHeavy ? "compute-heavy workload; prefer GPU-capable servers" : undefined,
+      },
+      { category: "switch", qty: switchQty },
+    ],
+  };
+}
 
 export type FaultKind = "overlap" | "out_of_bounds" | "remove_critical" | "power_hog";
 

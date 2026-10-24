@@ -1,7 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { breakDesign } from "@/lib/scenarios";
+import { breakDesign, generateRequirements } from "@/lib/scenarios";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import type { Design, Requirements } from "@/lib/types";
+
+describe("generateRequirements", () => {
+  it("is deterministic for a given seed", () => {
+    expect(generateRequirements(42)).toEqual(generateRequirements(42));
+  });
+
+  it("produces different scenarios for different seeds", () => {
+    const seen = new Set(
+      Array.from({ length: 20 }, (_, i) => JSON.stringify(generateRequirements(i + 1)))
+    );
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("stays within the documented ranges across many seeds", () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = generateRequirements(seed);
+      expect(r.rackHeightU).toBeGreaterThanOrEqual(24);
+      expect(r.rackHeightU).toBeLessThanOrEqual(48);
+      expect(r.powerBudgetW).toBeGreaterThanOrEqual(3000);
+      expect(r.powerBudgetW).toBeLessThanOrEqual(12000);
+      const serverReq = r.required.find((x) => x.category === "server")!;
+      const switchReq = r.required.find((x) => x.category === "switch")!;
+      expect(serverReq.qty).toBeGreaterThanOrEqual(2);
+      expect(serverReq.qty).toBeLessThanOrEqual(16);
+      expect(switchReq.qty).toBeGreaterThanOrEqual(1);
+      expect(switchReq.qty).toBeLessThanOrEqual(3);
+    }
+  });
+});
 
 function validRequirements(): Requirements {
   return { rackHeightU: 42, powerBudgetW: 10000, redundantPower: false, required: [] };

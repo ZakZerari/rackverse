@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   DndContext,
   DragOverlay,
@@ -19,6 +20,7 @@ import { BottomPanel } from "@/components/studio/BottomPanel";
 import { VersionHistoryPanel } from "@/components/studio/VersionHistoryPanel";
 import { Toolbar } from "@/components/studio/Toolbar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export default function StudioPage() {
   const { face, addPlacement, movePlacement, selectedPlacementId, removePlacement, revalidate } =
@@ -88,6 +90,9 @@ export default function StudioPage() {
           <div className="flex items-center gap-2">
             <Toolbar />
             <VersionHistoryPanel />
+            <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/lab" />}>
+              Lab
+            </Button>
           </div>
         </header>
         <div className="grid flex-1 grid-cols-[240px_1fr_280px] overflow-hidden">

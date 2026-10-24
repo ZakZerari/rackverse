@@ -1,10 +1,10 @@
 import { runArchitect } from "@/lib/agents/architect";
 import { runRepairAgent } from "@/lib/agents/repair";
 import { runRequirementsAgent } from "@/lib/agents/requirements";
-import { getRelevantLessons, recordLesson } from "@/lib/lessons";
+import { getRelevantLessons, recordLesson, type Lesson } from "@/lib/lessons";
 import { genPlacementId } from "@/lib/patch";
 import type { ArchitectOutputSchema } from "@/lib/schemas";
-import type { Design, Requirements } from "@/lib/types";
+import type { Design, Patch, Requirements, Violation } from "@/lib/types";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import { verifyPatch } from "@/lib/verify";
 import type { z } from "zod";
@@ -41,6 +41,16 @@ function buildDesignFromArchitectOutput(
   };
 }
 
+export interface RepairLoopOptions {
+  maxAttempts?: number;
+  runId?: string;
+  /** Defaults to the shared, file-backed data/lessons.json store. The
+   * benchmark injects an isolated in-memory store instead, so Config A/B
+   * comparisons never read or write the live app's lessons. */
+  getLessons?: (violations: Violation[]) => Lesson[];
+  onLessonLearned?: (violations: Violation[], patch: Patch, improvement: string) => void;
+}
+
 /**
  * Repair -> verify -> commit-or-rollback, up to `maxAttempts` times. Stops
  * early once there are no hard violations left. Used by both
@@ -50,10 +60,12 @@ function buildDesignFromArchitectOutput(
 export async function runRepairLoop(
   design: Design,
   requirements: Requirements,
-  maxAttempts: number,
   trace: TraceStep[],
-  runId?: string
+  opts: RepairLoopOptions = {}
 ): Promise<Design> {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const getLessons = opts.getLessons ?? getRelevantLessons;
+  const onLessonLearned = opts.onLessonLearned ?? recordLesson;
   let current = design;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -61,8 +73,8 @@ export async function runRepairLoop(
     const hard = hardViolations(violations);
     if (hard.length === 0) break;
 
-    const lessons = getRelevantLessons(hard);
-    const patch = await runRepairAgent({ design: current, violations: hard, requirements, lessons }, runId);
+    const lessons = getLessons(hard);
+    const patch = await runRepairAgent({ design: current, violations: hard, requirements, lessons }, opts.runId);
     const result = verifyPatch(current, patch, requirements, "valid");
 
     trace.push(
@@ -76,7 +88,7 @@ export async function runRepairLoop(
 
     if (result.accepted) {
       current = result.design;
-      recordLesson(hard, patch, result.reason);
+      onLessonLearned(hard, patch, result.reason);
     }
   }
 
@@ -90,26 +102,15 @@ export interface DesignFromPromptResult {
 }
 
 /**
- * The full pipeline: NL -> Requirements -> Architect -> validate -> repair
- * loop -> return. The AI proposes at every step; validateDesign (deterministic
- * code) and verifyPatch (deterministic code) are what actually decide.
+ * Architect -> validate -> repair loop -> return, for when Requirements are
+ * already structured (scenarios, the benchmark) rather than free text.
  */
-export async function designFromPrompt(
-  text: string,
-  opts?: { runId?: string; maxRepairAttempts?: number }
+export async function designFromRequirements(
+  requirements: Requirements,
+  opts?: RepairLoopOptions & { trace?: TraceStep[] }
 ): Promise<DesignFromPromptResult> {
   const runId = opts?.runId ?? `run-${Date.now()}`;
-  const trace: TraceStep[] = [];
-
-  const requirements = await runRequirementsAgent(text, runId);
-  const requiredSummary = requirements.required.map((r) => `${r.qty}x ${r.category}`).join(", ");
-  trace.push(
-    traceStep(
-      "RequirementsAgent",
-      `${requirements.rackHeightU}U rack, ${requirements.powerBudgetW}W budget${requirements.redundantPower ? ", redundant power" : ""}${requiredSummary ? ` — ${requiredSummary}` : ""}.`,
-      true
-    )
-  );
+  const trace = opts?.trace ?? [];
 
   const architectOutput = await runArchitect(requirements, runId);
   let design = buildDesignFromArchitectOutput(architectOutput, requirements);
@@ -130,9 +131,34 @@ export async function designFromPrompt(
     )
   );
 
-  design = await runRepairLoop(design, requirements, opts?.maxRepairAttempts ?? 3, trace, runId);
+  design = await runRepairLoop(design, requirements, trace, { ...opts, runId });
 
   return { design, requirements, trace };
+}
+
+/**
+ * The full pipeline: NL -> Requirements -> Architect -> validate -> repair
+ * loop -> return. The AI proposes at every step; validateDesign (deterministic
+ * code) and verifyPatch (deterministic code) are what actually decide.
+ */
+export async function designFromPrompt(
+  text: string,
+  opts?: RepairLoopOptions
+): Promise<DesignFromPromptResult> {
+  const runId = opts?.runId ?? `run-${Date.now()}`;
+  const trace: TraceStep[] = [];
+
+  const requirements = await runRequirementsAgent(text, runId);
+  const requiredSummary = requirements.required.map((r) => `${r.qty}x ${r.category}`).join(", ");
+  trace.push(
+    traceStep(
+      "RequirementsAgent",
+      `${requirements.rackHeightU}U rack, ${requirements.powerBudgetW}W budget${requirements.redundantPower ? ", redundant power" : ""}${requiredSummary ? ` — ${requiredSummary}` : ""}.`,
+      true
+    )
+  );
+
+  return designFromRequirements(requirements, { ...opts, runId, trace });
 }
 
 export interface RepairOnlyResult {
@@ -144,9 +170,9 @@ export interface RepairOnlyResult {
 export async function repairOnly(
   design: Design,
   requirements: Requirements,
-  opts?: { runId?: string; maxAttempts?: number }
+  opts?: RepairLoopOptions
 ): Promise<RepairOnlyResult> {
   const trace: TraceStep[] = [];
-  const result = await runRepairLoop(design, requirements, opts?.maxAttempts ?? 3, trace, opts?.runId);
+  const result = await runRepairLoop(design, requirements, trace, opts);
   return { design: result, trace };
 }
