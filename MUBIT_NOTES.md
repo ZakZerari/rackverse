@@ -4,12 +4,17 @@ Findings from skimming https://docs.mubit.ai (and its `/llms-full.txt`) before w
 
 ## Base URL & auth
 
-- Base URL for the OpenAI-compatible proxy: `https://api.mubit.ai/openai/v1` (ends in `/v1`).
-- Auth: pass the Mubit key as the OpenAI SDK's `apiKey`. Model IDs stay the same as the underlying provider's.
+- Generic OpenAI-compatible proxy: `https://api.mubit.ai/openai/v1`.
+- **We actually run on Gemini**, per the team's choice, via Mubit's OpenAI-compatible route for Gemini specifically: `https://api.mubit.ai/gemini/v1beta/openai` (confirmed live — see Smoke test status below). This is a different base URL from the generic one above; everything else about the `openai` npm SDK usage is identical, so we still satisfy "exactly one module, one SDK" (`src/lib/llm.ts`, `MUBIT_BASE_URL`).
+- Auth: pass the Mubit key as the OpenAI SDK's `apiKey`.
+- Model: `gemini-3.8-flash` (the only model id Mubit's Gemini guide documents).
+- There's also a *native* Gemini-SDK route documented (`https://api.mubit.ai/gemini`, via `google-genai`, not the `openai` package) — we deliberately don't use it, since the hackathon rule is one `openai`-SDK module.
 
 ```ts
-const client = new OpenAI({ baseURL: "https://api.mubit.ai/openai/v1", apiKey: process.env.MUBIT_API_KEY });
+const client = new OpenAI({ baseURL: "https://api.mubit.ai/gemini/v1beta/openai", apiKey: process.env.MUBIT_API_KEY });
 ```
+
+**Gotcha (confirmed live, not just docs):** Gemini's OpenAI-compat shim 400s on `metadata` — `{"error":{"message":"Invalid JSON payload received. Unknown name \"metadata\": Cannot find field."}}`. So `src/lib/llm.ts` does NOT send `metadata` on this route (session grouping below is therefore unverified for Gemini specifically — our own `runId`/`agent` fields still land in `data/calls.jsonl` for local tracing).
 
 ## Sessions vs. tasks (this matters for our architecture)
 
@@ -45,10 +50,11 @@ Docs don't explicitly confirm `response_format: json_schema` support versus `jso
 
 ## Smoke test status
 
-Not yet run — `MUBIT_API_KEY` / `MUBIT_MODEL` are not set in this environment. Once `.env.local` is filled in, run:
+**PASSED.** `npm run smoke-mubit` against `https://api.mubit.ai/gemini/v1beta/openai`, model `gemini-3.8-flash`:
 
-```bash
-npm run smoke-mubit
+```
+Mubit responded: { ok: true, note: 'Connection successful' }
+Structured output mode that worked: json_schema
 ```
 
-This section will be updated with the result (pass/fail, structured-output mode detected, confirmation that the call appears in the Mubit console) once that's been done.
+So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` no longer needs to fall back to `json_object` for Gemini. (The call to Mubit's console to visually confirm the call landed there is still something a human needs to do — not something I can check myself.)

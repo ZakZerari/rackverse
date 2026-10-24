@@ -6,7 +6,11 @@ import { z } from "zod";
 // The ONLY module in this app allowed to call an LLM. Every agent goes
 // through `complete()` below, and every call is routed through Mubit.
 // `npm run check:llm` greps the repo to enforce this.
-export const MUBIT_BASE_URL = "https://api.mubit.ai/openai/v1";
+//
+// This points at Mubit's OpenAI-compatible route for Gemini (not the generic
+// /openai/v1 route) so we can run on Gemini while still using the `openai`
+// npm SDK everywhere, per the fixed stack. See MUBIT_NOTES.md.
+export const MUBIT_BASE_URL = "https://api.mubit.ai/gemini/v1beta/openai";
 
 const CALLS_LOG_PATH = join(process.cwd(), "data", "calls.jsonl");
 
@@ -121,7 +125,9 @@ export async function complete<T>({
           mode === "json_schema"
             ? { type: "json_schema", json_schema: { name: schemaName, schema: jsonSchema, strict: false } }
             : { type: "json_object" },
-        metadata: { agent, ...(runId ? { session_id: runId } : {}) },
+        // Gemini's OpenAI-compat route 400s on unrecognized top-level fields,
+        // including `metadata` — see MUBIT_NOTES.md. runId/agent are still
+        // captured in our own calls.jsonl log below.
       });
 
       if (detectedMode === null) detectedMode = mode;
