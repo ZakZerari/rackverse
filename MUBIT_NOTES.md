@@ -59,6 +59,32 @@ Structured output mode that worked: json_schema
 
 So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` no longer needs to fall back to `json_object` for Gemini. (The call to Mubit's console to visually confirm the call landed there is still something a human needs to do — not something I can check myself.)
 
+## The free-tier rate limit, which explains almost everything
+
+Running 30 training scenarios surfaced the constraint we'd been fighting blind all along. Google states it outright in the 429 body:
+
+```
+limit: 15, model: gemini-3.5-flash-lite
+quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier
+Please retry in 50.602284406s.
+```
+
+**15 generate-content requests per minute, per model, on the free tier.** That one fact accounts for:
+
+- **The original "latency".** `gemini-3.8-flash` wasn't slow — the OpenAI SDK defaults to `maxRetries: 2` and silently retries 429s with backoff, so a rate-limited call *looked* like a 105-second response. (We now set `maxRetries: 0` and handle retries ourselves, visibly.)
+- **The 1-of-14 keep rate.** A 429'd call never becomes a kept example. Most calls were failing, so almost nothing was eligible for training.
+- **18 of 30 scenarios failing** at concurrency 4 — two sequential calls per scenario blows through 15/min immediately.
+
+### What we do about it
+
+`src/lib/llm.ts` now paces itself: a sliding 60-second window capped at `MUBIT_RPM` (default 12, leaving headroom under 15), shared by every call in the process. When it has to wait, it says so in the Copilot thread rather than looking hung.
+
+On a 429 we honour **the server's own retry window** (`RetryInfo.retryDelay`, typically 25–50s) instead of our 4-second backoff ladder, capped at 65s. `retryAfterMs()` parses both the prose and the structured field, tested against the verbatim 429 we received.
+
+`train-traffic` defaults to concurrency 2 (`TRAIN_CONCURRENCY` to override) and estimates its own runtime from the cap. Note the pacer is per-process, so the dev server and a script running together share the real quota but not the window — don't run large batches while demoing.
+
+**If you upgrade the Gemini key to a paid tier, raise `MUBIT_RPM`** and these constraints largely disappear.
+
 ## Task fragmentation — why no adapter was training
 
 The console showed **20 tasks for 3 agents**: `RackArchitect part of server`, `…part of server 2`, `3`, `4`, `6`, two `RequirementsAgent` variants, two `RepairAgent` variants, an unnamed `Task 5`. The busiest had 14 calls but **1 kept example** against a threshold of 25. Nothing could ever train.

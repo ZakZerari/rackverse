@@ -49,12 +49,18 @@ async function main() {
   }
 
   const n = parseN();
-  const limit = pLimit(4);
+  // Gemini's free tier caps generate-content at 15 req/min per model, and
+  // src/lib/llm.ts paces under that. Concurrency above ~2 just queues behind
+  // the pacer while making the log harder to read.
+  const limit = pLimit(Number(process.env.TRAIN_CONCURRENCY ?? 2));
   let ok = 0;
   let failed = 0;
   const startedAt = Date.now();
 
-  console.log(`Running ${n} scenario(s) through RackArchitect + RepairAgent (concurrency 4)...`);
+  console.log(
+    `Running ${n} scenario(s) through RackArchitect + RepairAgent.\n` +
+      `Paced under the free tier's 15 req/min cap, so expect roughly ${Math.ceil((n * 2) / 12)} minute(s).`
+  );
 
   const tasks = Array.from({ length: n }, (_, i) => i + 1).map((seed) =>
     limit(async () => {

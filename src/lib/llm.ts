@@ -95,9 +95,13 @@ function jsonSchemaName(agent: string): string {
  * patience. Telling them apart stops us burning correction attempts on
  * problems the model never caused.
  */
+export function status(err: unknown): number | undefined {
+  return (err as { status?: number } | null)?.status;
+}
+
 export function isTransientError(err: unknown): boolean {
-  const status = (err as { status?: number } | null)?.status;
-  if (typeof status === "number") return status === 408 || status === 409 || status === 429 || status >= 500;
+  const code = status(err);
+  if (typeof code === "number") return code === 408 || code === 409 || code === 429 || code >= 500;
   const message = err instanceof Error ? err.message : String(err);
   return /ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network/i.test(message);
 }
@@ -106,6 +110,48 @@ const TRANSIENT_BACKOFF_MS = [600, 1800, 4000];
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Gemini's free tier allows 15 generate-content requests per minute per model
+ * ("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", limit: 15). Going
+ * over doesn't just fail the call — a 429'd call never becomes a kept
+ * training example, which is what was starving the adapters. So we pace
+ * ourselves under the cap rather than discovering it the hard way.
+ *
+ * Sliding 60s window, shared by every call in this process. Scripts and the
+ * dev server are separate processes with separate windows, so keep script
+ * concurrency modest.
+ */
+const RPM_LIMIT = Number(process.env.MUBIT_RPM ?? 12);
+let recentRequests: number[] = [];
+
+async function acquireRateLimitSlot(onWait?: (ms: number) => void): Promise<void> {
+  for (;;) {
+    const now = Date.now();
+    recentRequests = recentRequests.filter((t) => now - t < 60_000);
+    if (recentRequests.length < RPM_LIMIT) {
+      recentRequests.push(now);
+      return;
+    }
+    const waitMs = 60_000 - (now - recentRequests[0]) + 50;
+    onWait?.(waitMs);
+    await sleep(waitMs);
+  }
+}
+
+/**
+ * A 429 from Gemini carries how long to wait, both as RetryInfo.retryDelay
+ * and in the message ("Please retry in 50.6s"). Honour it — our own backoff
+ * ladder tops out at 4s, which is nowhere near enough.
+ */
+export function retryAfterMs(err: unknown): number | null {
+  const message = err instanceof Error ? err.message : String(err);
+  const fromProse = message.match(/retry in ([0-9.]+)s/i);
+  if (fromProse) return Math.ceil(Number(fromProse[1]) * 1000);
+  const fromRetryInfo = message.match(/"retryDelay"\s*:\s*"([0-9.]+)s"/);
+  if (fromRetryInfo) return Math.ceil(Number(fromRetryInfo[1]) * 1000);
+  return null;
 }
 
 export interface CompleteArgs<T> {
@@ -150,8 +196,15 @@ export async function complete<T>({
   let transientRetries = 0;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
-    const startedAt = Date.now();
     emit({ type: "agent:start", agent, note: note ?? (attempt > 1 ? `Retry ${attempt - 1}…` : "Thinking…") });
+    await acquireRateLimitSlot((waitMs) =>
+      emit({
+        type: "agent:token",
+        agent,
+        text: `\n[pacing: free tier allows ${RPM_LIMIT}/min, waiting ${Math.ceil(waitMs / 1000)}s]\n`,
+      })
+    );
+    const startedAt = Date.now();
 
     try {
       const stream = await client.chat.completions.create({
@@ -222,11 +275,20 @@ export async function complete<T>({
       emit({ type: "agent:error", agent, attempt, error: message });
 
       if (transient) {
-        // The gateway, not the model. Wait it out without consuming a
-        // correction attempt or polluting the prompt with a bogus "your
-        // response was invalid" note.
+        // The gateway or a quota, not the model. Wait it out without
+        // consuming a correction attempt or polluting the prompt with a bogus
+        // "your response was invalid" note.
         if (transientRetries >= TRANSIENT_BACKOFF_MS.length) break;
-        await sleep(TRANSIENT_BACKOFF_MS[transientRetries]);
+        // Prefer the server's own retry window (a Gemini 429 asks for ~30-50s;
+        // our ladder tops out at 4s), capped so one call can't stall forever.
+        const serverDelay = retryAfterMs(err);
+        const waitMs = Math.min(serverDelay ?? TRANSIENT_BACKOFF_MS[transientRetries], 65_000);
+        emit({
+          type: "agent:token",
+          agent,
+          text: `\n[${status(err) ?? "error"}: retrying in ${Math.ceil(waitMs / 1000)}s]\n`,
+        });
+        await sleep(waitMs);
         transientRetries += 1;
         attempt -= 1;
         continue;

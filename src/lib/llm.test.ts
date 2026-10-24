@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { isTransientError, toGeminiJsonSchema } from "@/lib/llm";
+import { isTransientError, retryAfterMs, toGeminiJsonSchema } from "@/lib/llm";
 import { PatchSchema } from "@/lib/schemas";
+
+describe("retryAfterMs", () => {
+  // Verbatim shape of the 429 Gemini's free tier actually returned to us.
+  const REAL_429 =
+    '429 [{"error":{"code":429,"message":"You exceeded your current quota. ' +
+    'Please retry in 50.602284406s.","status":"RESOURCE_EXHAUSTED","details":' +
+    '[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"50s"}]}}]';
+
+  it("honours the server's stated retry window", () => {
+    expect(retryAfterMs(new Error(REAL_429))).toBe(50603);
+  });
+
+  it("falls back to RetryInfo.retryDelay when there's no prose hint", () => {
+    expect(retryAfterMs(new Error('{"retryDelay":"23s"}'))).toBe(23000);
+  });
+
+  it("returns null when the error says nothing about waiting", () => {
+    expect(retryAfterMs(new Error("Invalid JSON"))).toBeNull();
+  });
+});
 
 describe("isTransientError", () => {
   it("treats gateway and rate-limit failures as worth waiting out", () => {
