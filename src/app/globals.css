@@ -39,6 +39,9 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-panel: var(--panel);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -48,73 +51,82 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Light theme kept defined so nothing renders transparent, but the Studio
+   ships dark — it's a control-room tool. */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.98 0.003 250);
+  --foreground: oklch(0.21 0.015 255);
+  --panel: oklch(1 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.21 0.015 255);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.21 0.015 255);
+  --primary: oklch(0.62 0.14 230);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.005 250);
+  --secondary-foreground: oklch(0.28 0.015 255);
+  --muted: oklch(0.96 0.005 250);
+  --muted-foreground: oklch(0.52 0.012 255);
+  --accent: oklch(0.95 0.015 230);
+  --accent-foreground: oklch(0.28 0.015 255);
+  --destructive: oklch(0.58 0.2 25);
+  --ok: oklch(0.6 0.13 155);
+  --warn: oklch(0.72 0.14 75);
+  --border: oklch(0.91 0.006 250);
+  --input: oklch(0.91 0.006 250);
+  --ring: oklch(0.62 0.14 230);
+  --chart-1: oklch(0.62 0.14 230);
+  --chart-2: oklch(0.65 0.11 185);
+  --chart-3: oklch(0.6 0.13 155);
+  --chart-4: oklch(0.72 0.14 75);
+  --chart-5: oklch(0.58 0.16 300);
+  --radius: 0.5rem;
+  --sidebar: oklch(0.98 0.003 250);
+  --sidebar-foreground: oklch(0.21 0.015 255);
+  --sidebar-primary: oklch(0.62 0.14 230);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.95 0.015 230);
+  --sidebar-accent-foreground: oklch(0.28 0.015 255);
+  --sidebar-border: oklch(0.91 0.006 250);
+  --sidebar-ring: oklch(0.62 0.14 230);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Cool near-black with a blue cast — reads as "instrumentation", not "void" */
+  --background: oklch(0.165 0.012 255);
+  --foreground: oklch(0.93 0.008 250);
+  --panel: oklch(0.197 0.013 255);
+  --card: oklch(0.218 0.014 255);
+  --card-foreground: oklch(0.93 0.008 250);
+  --popover: oklch(0.218 0.014 255);
+  --popover-foreground: oklch(0.93 0.008 250);
+  --primary: oklch(0.72 0.14 225);
+  --primary-foreground: oklch(0.16 0.012 255);
+  --secondary: oklch(0.27 0.016 255);
+  --secondary-foreground: oklch(0.93 0.008 250);
+  --muted: oklch(0.26 0.014 255);
+  --muted-foreground: oklch(0.67 0.014 253);
+  --accent: oklch(0.3 0.03 230);
+  --accent-foreground: oklch(0.95 0.008 250);
+  --destructive: oklch(0.68 0.19 22);
+  --ok: oklch(0.72 0.15 158);
+  --warn: oklch(0.79 0.14 78);
+  --border: oklch(0.3 0.015 255);
+  --input: oklch(0.32 0.016 255);
+  --ring: oklch(0.72 0.14 225);
+  --chart-1: oklch(0.72 0.14 225);
+  --chart-2: oklch(0.72 0.12 190);
+  --chart-3: oklch(0.72 0.15 158);
+  --chart-4: oklch(0.79 0.14 78);
+  --chart-5: oklch(0.68 0.16 305);
+  --sidebar: oklch(0.197 0.013 255);
+  --sidebar-foreground: oklch(0.93 0.008 250);
+  --sidebar-primary: oklch(0.72 0.14 225);
+  --sidebar-primary-foreground: oklch(0.16 0.012 255);
+  --sidebar-accent: oklch(0.3 0.03 230);
+  --sidebar-accent-foreground: oklch(0.95 0.008 250);
+  --sidebar-border: oklch(0.3 0.015 255);
+  --sidebar-ring: oklch(0.72 0.14 225);
 }
 
 @layer base {
@@ -123,8 +135,35 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  /* Every scroll region in the Studio uses this: a flex/grid child needs
+     min-h-0 to be allowed to shrink below its content and actually scroll. */
+  .scroll-region {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scroll-region::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-region::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 999px;
+  }
+  .scroll-region::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }

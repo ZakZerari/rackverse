@@ -1,4 +1,5 @@
 import { catalogSummary } from "@/data/catalog";
+import type { AgentCallOptions } from "@/lib/agents/requirements";
 import { complete } from "@/lib/llm";
 import type { Lesson } from "@/lib/lessons";
 import { PatchSchema } from "@/lib/schemas";
@@ -24,7 +25,10 @@ export interface RepairAgentInput {
   lessons: Lesson[];
 }
 
-export async function runRepairAgent(input: RepairAgentInput, runId?: string): Promise<Patch> {
+export async function runRepairAgent(
+  input: RepairAgentInput,
+  opts: AgentCallOptions = {}
+): Promise<Patch> {
   const user = JSON.stringify({
     design: input.design,
     violations: input.violations,
@@ -37,6 +41,6 @@ export async function runRepairAgent(input: RepairAgentInput, runId?: string): P
     system: REPAIR_AGENT_SYSTEM,
     user,
     schema: PatchSchema,
-    runId,
+    ...opts,
   });
 }

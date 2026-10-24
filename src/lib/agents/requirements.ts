@@ -1,6 +1,13 @@
+import type { EmitFn } from "@/lib/events";
 import { complete } from "@/lib/llm";
 import { RequirementsSchema } from "@/lib/schemas";
 import type { Requirements } from "@/lib/types";
+
+export interface AgentCallOptions {
+  runId?: string;
+  emit?: EmitFn;
+  note?: string;
+}
 
 // Constant system prompt — this IS the Mubit task definition for this agent.
 // Never interpolate anything into this string; all variable input goes in
@@ -18,12 +25,12 @@ Rules:
 
 Respond with ONLY a JSON object matching the required schema. No prose, no markdown fences.`;
 
-export async function runRequirementsAgent(text: string, runId?: string): Promise<Requirements> {
+export async function runRequirementsAgent(text: string, opts: AgentCallOptions = {}): Promise<Requirements> {
   return complete({
     agent: "RequirementsAgent",
     system: REQUIREMENTS_AGENT_SYSTEM,
     user: text,
     schema: RequirementsSchema,
-    runId,
+    ...opts,
   });
 }

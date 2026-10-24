@@ -1,24 +1,20 @@
 import { create } from "zustand";
+import type { RunEvent } from "@/lib/events";
+import type { RepairOnlyResult } from "@/lib/orchestrate";
 import { applyPatch } from "@/lib/patch";
-import type { RepairOnlyResult, TraceStep } from "@/lib/orchestrate";
 import { breakDesign } from "@/lib/scenarios";
 import type { Design, Face, Patch, Requirements, Violation } from "@/lib/types";
 import { validateDesign } from "@/lib/validate";
 
 export function defaultRequirements(): Requirements {
-  return {
-    rackHeightU: 42,
-    powerBudgetW: 10000,
-    redundantPower: false,
-    required: [],
-  };
+  return { rackHeightU: 42, powerBudgetW: 10000, redundantPower: false, required: [] };
 }
 
 export function defaultDesign(): Design {
   return {
     rack: {
       id: "rack-1",
-      name: "Rack 1",
+      name: "Untitled Rack",
       heightU: 42,
       mountingDepthMm: 1000,
       maxLoadKg: 500,
@@ -29,18 +25,34 @@ export function defaultDesign(): Design {
   };
 }
 
+/** One entry in the live Agent Activity timeline. */
+export interface ActivityEntry {
+  id: string;
+  label: string;
+  detail: string;
+  status: "running" | "ok" | "rejected" | "error";
+  latencyMs?: number;
+  tokens?: number;
+}
+
 interface RackStore {
   design: Design;
   requirements: Requirements;
-  versions: Design[]; // committed history, oldest first
+  versions: Design[];
   selectedPlacementId: string | null;
   face: Face;
 
   violations: Violation[];
+  violatedPlacementIds: Set<string>;
   revalidate: () => void;
 
-  trace: TraceStep[];
-  appendTrace: (steps: TraceStep[]) => void;
+  // Live run state, driven by streamed RunEvents.
+  activity: ActivityEntry[];
+  isRunning: boolean;
+  runningAgent: string | null;
+  streamPreview: string;
+  applyEvent: (event: RunEvent) => void;
+  clearActivity: () => void;
 
   setFace: (face: Face) => void;
   selectPlacement: (id: string | null) => void;
@@ -49,10 +61,9 @@ interface RackStore {
   addPlacement: (catalogId: string, startU: number, face: Face, feed?: "A" | "B") => void;
   movePlacement: (placementId: string, newStartU: number, newFace?: Face) => void;
   removePlacement: (placementId: string) => void;
-  replacePlacement: (placementId: string, newCatalogId: string) => void;
   setFeed: (placementId: string, feed: "A" | "B" | undefined) => void;
 
-  setDesign: (design: Design) => void; // used by the orchestrator once agents exist
+  setDesign: (design: Design) => void;
   setRequirements: (requirements: Requirements) => void;
   restoreVersion: (version: number) => void;
 
@@ -70,14 +81,139 @@ export const useRackStore = create<RackStore>((set, get) => ({
   selectedPlacementId: null,
   face: "front",
   violations: [],
-  trace: [],
+  violatedPlacementIds: new Set(),
+
+  activity: [],
+  isRunning: false,
+  runningAgent: null,
+  streamPreview: "",
 
   revalidate: () => {
     const { design, requirements } = get();
-    set({ violations: validateDesign(design, requirements) });
+    const violations = validateDesign(design, requirements);
+    set({
+      violations,
+      violatedPlacementIds: new Set(violations.flatMap((v) => v.placementIds)),
+    });
   },
 
-  appendTrace: (steps) => set((s) => ({ trace: [...s.trace, ...steps] })),
+  applyEvent: (event) => {
+    const push = (entry: ActivityEntry) => set((s) => ({ activity: [...s.activity, entry] }));
+    const finishRunning = (agent: string, patch: Partial<ActivityEntry>) =>
+      set((s) => {
+        const index = [...s.activity].reverse().findIndex((a) => a.label === agent && a.status === "running");
+        if (index === -1) return s;
+        const realIndex = s.activity.length - 1 - index;
+        const activity = [...s.activity];
+        activity[realIndex] = { ...activity[realIndex], ...patch };
+        return { activity };
+      });
+
+    switch (event.type) {
+      case "run:start":
+        set({ isRunning: true, runningAgent: null, streamPreview: "" });
+        break;
+
+      case "agent:start":
+        set({ runningAgent: event.agent, streamPreview: "" });
+        push({
+          id: `${event.agent}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          label: event.agent,
+          detail: event.note,
+          status: "running",
+        });
+        break;
+
+      case "agent:token":
+        set((s) => ({ streamPreview: (s.streamPreview + event.text).slice(-600) }));
+        break;
+
+      case "agent:done":
+        finishRunning(event.agent, {
+          status: "ok",
+          detail: event.note ?? "Responded.",
+          latencyMs: event.latencyMs,
+          tokens: (event.promptTokens ?? 0) + (event.completionTokens ?? 0),
+        });
+        set({ runningAgent: null, streamPreview: "" });
+        break;
+
+      case "agent:error":
+        finishRunning(event.agent, { status: "error", detail: event.error });
+        set({ runningAgent: null });
+        break;
+
+      case "validator:result":
+        push({
+          id: `validator-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          label: "Validator",
+          detail:
+            event.violations.length === 0
+              ? "No violations."
+              : `${event.hardCount} hard, ${event.violations.length - event.hardCount} soft.`,
+          status: event.hardCount === 0 ? "ok" : "rejected",
+        });
+        break;
+
+      case "verifier:decision":
+        push({
+          id: `verifier-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          label: "Verifier",
+          detail: event.reason,
+          status: event.accepted ? "ok" : "rejected",
+        });
+        break;
+
+      case "design:update":
+        set({ design: event.design });
+        get().revalidate();
+        break;
+
+      case "run:done":
+        set({
+          design: event.design,
+          requirements: event.requirements,
+          versions: [event.design],
+          selectedPlacementId: null,
+          isRunning: false,
+          runningAgent: null,
+          streamPreview: "",
+        });
+        get().revalidate();
+        break;
+
+      case "repair:proposed":
+        set({
+          pendingRepair: {
+            design: event.design,
+            trace: [
+              {
+                id: `repair-${Date.now()}`,
+                label: "RepairAgent",
+                detail: event.reason,
+                ok: event.accepted,
+              },
+            ],
+          },
+          isRunning: false,
+          runningAgent: null,
+          streamPreview: "",
+        });
+        break;
+
+      case "run:error":
+        push({
+          id: `error-${Date.now()}`,
+          label: "Run failed",
+          detail: event.error,
+          status: "error",
+        });
+        set({ isRunning: false, runningAgent: null, streamPreview: "" });
+        break;
+    }
+  },
+
+  clearActivity: () => set({ activity: [] }),
 
   setFace: (face) => set({ face }),
   selectPlacement: (id) => set({ selectedPlacementId: id }),
@@ -95,10 +231,7 @@ export const useRackStore = create<RackStore>((set, get) => ({
   },
 
   movePlacement: (placementId, newStartU, newFace) => {
-    get().applyAndCommit({
-      ops: [{ op: "move", placementId, newStartU, newFace }],
-      rationale: "manual move",
-    });
+    get().applyAndCommit({ ops: [{ op: "move", placementId, newStartU, newFace }], rationale: "manual move" });
   },
 
   removePlacement: (placementId) => {
@@ -107,16 +240,9 @@ export const useRackStore = create<RackStore>((set, get) => ({
     if (selectedPlacementId === placementId) set({ selectedPlacementId: null });
   },
 
-  replacePlacement: (placementId, newCatalogId) => {
-    get().applyAndCommit({
-      ops: [{ op: "replace", placementId, newCatalogId }],
-      rationale: "manual replace",
-    });
-  },
-
   setFeed: (placementId, feed) => {
-    // Feed isn't part of the Patch schema (AI agents only set it on `add`), so
-    // this manual-UI-only edit bypasses applyPatch and commits directly.
+    // Feed isn't part of the Patch schema (agents only set it on `add`), so this
+    // manual-only edit commits directly instead of going through applyPatch.
     const { design, versions } = get();
     const next: Design = {
       ...design,
@@ -128,8 +254,6 @@ export const useRackStore = create<RackStore>((set, get) => ({
   },
 
   setDesign: (design) => {
-    // A wholly new design from the orchestrator starts its own version history
-    // rather than appending to whatever the Studio had before.
     set({ design, versions: [design], selectedPlacementId: null });
     get().revalidate();
   },
@@ -154,10 +278,14 @@ export const useRackStore = create<RackStore>((set, get) => ({
   breakIt: () => {
     const { design, versions } = get();
     const result = breakDesign(design);
-    set({ design: result.design, versions: [...versions, result.design] });
-    get().appendTrace([
-      { id: `break-${Date.now()}`, label: "Break it", detail: result.description, ok: false },
-    ]);
+    set({
+      design: result.design,
+      versions: [...versions, result.design],
+      activity: [
+        ...get().activity,
+        { id: `break-${Date.now()}`, label: "Break it", detail: result.description, status: "rejected" },
+      ],
+    });
     get().revalidate();
   },
 
@@ -167,22 +295,23 @@ export const useRackStore = create<RackStore>((set, get) => ({
     if (pendingRepair.design !== design) {
       set({ design: pendingRepair.design, versions: [...versions, pendingRepair.design] });
     }
-    get().appendTrace(pendingRepair.trace);
     set({ pendingRepair: null });
     get().revalidate();
   },
 
   rejectPendingRepair: () => {
-    const { pendingRepair } = get();
-    if (!pendingRepair) return;
-    get().appendTrace([
-      {
-        id: `reject-${Date.now()}`,
-        label: "Auto-repair",
-        detail: "Discarded by user — design left unchanged.",
-        ok: false,
-      },
-    ]);
-    set({ pendingRepair: null });
+    if (!get().pendingRepair) return;
+    set((s) => ({
+      pendingRepair: null,
+      activity: [
+        ...s.activity,
+        {
+          id: `reject-${Date.now()}`,
+          label: "Auto-repair",
+          detail: "Discarded by user — design left unchanged.",
+          status: "rejected",
+        },
+      ],
+    }));
   },
 }));

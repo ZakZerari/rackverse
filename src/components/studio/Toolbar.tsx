@@ -1,19 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { readSSE } from "@/lib/events";
 import { useRackStore } from "@/lib/store";
-import type { RepairOnlyResult } from "@/lib/orchestrate";
 import { Button } from "@/components/ui/button";
 
 export function Toolbar() {
   const design = useRackStore((s) => s.design);
   const requirements = useRackStore((s) => s.requirements);
   const breakIt = useRackStore((s) => s.breakIt);
-  const setPendingRepair = useRackStore((s) => s.setPendingRepair);
-  const appendTrace = useRackStore((s) => s.appendTrace);
-  const hardViolationCount = useRackStore(
-    (s) => s.violations.filter((v) => v.severity === "hard").length
-  );
+  const applyEvent = useRackStore((s) => s.applyEvent);
+  const isRunning = useRackStore((s) => s.isRunning);
+  const hardCount = useRackStore((s) => s.violations.filter((v) => v.severity === "hard").length);
   const [repairing, setRepairing] = useState(false);
 
   async function handleAutoRepair() {
@@ -25,35 +23,46 @@ export function Toolbar() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ design, requirements }),
       });
-      const body = (await res.json()) as RepairOnlyResult & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Repair failed.");
-      setPendingRepair(body);
+      if (!res.ok || !res.body) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Repair failed (${res.status}).`);
+      }
+      for await (const event of readSSE(res.body)) {
+        applyEvent(event);
+      }
     } catch (err) {
-      appendTrace([
-        {
-          id: `repair-error-${Date.now()}`,
-          label: "Auto-repair",
-          detail: err instanceof Error ? err.message : String(err),
-          ok: false,
-        },
-      ]);
+      applyEvent({
+        type: "agent:error",
+        agent: "RepairAgent",
+        attempt: 1,
+        error: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setRepairing(false);
     }
   }
 
+  const busy = repairing || isRunning;
+
   return (
-    <div className="flex items-center gap-2">
-      <Button variant="outline" size="sm" onClick={breakIt} disabled={design.placements.length === 0}>
-        Break it
-      </Button>
+    <div className="flex items-center gap-1.5">
       <Button
         variant="outline"
         size="sm"
-        onClick={handleAutoRepair}
-        disabled={repairing || hardViolationCount === 0}
+        onClick={breakIt}
+        disabled={busy || design.placements.length === 0}
+        title="Inject a realistic fault into the current design"
       >
-        {repairing ? "Repairing..." : "Auto-repair"}
+        Break it
+      </Button>
+      <Button
+        variant={hardCount > 0 ? "default" : "outline"}
+        size="sm"
+        onClick={handleAutoRepair}
+        disabled={busy || hardCount === 0}
+        title="Run the Repair Agent, then let the deterministic Verifier judge its patch"
+      >
+        {repairing ? "Repairing…" : "Auto-repair"}
       </Button>
     </div>
   );

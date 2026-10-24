@@ -2,7 +2,7 @@
 // end to end before anything else is built on top of it. Run with:
 //   npm run smoke-mubit
 import { z } from "zod";
-import { complete, getDetectedStructuredMode } from "@/lib/llm";
+import { complete } from "@/lib/llm";
 
 try {
   process.loadEnvFile(".env.local");
@@ -35,7 +35,6 @@ async function main() {
   });
 
   console.log("Mubit responded:", result);
-  console.log("Structured output mode that worked:", getDetectedStructuredMode());
   console.log("\nSmoke test PASSED. Check the Mubit console — this call should now be visible there.");
 }
 

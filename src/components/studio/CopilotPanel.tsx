@@ -1,14 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { getCatalogItem } from "@/data/catalog";
+import { readSSE } from "@/lib/events";
 import { useRackStore } from "@/lib/store";
-import type { DesignFromPromptResult } from "@/lib/orchestrate";
 import type { Design } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+
+const EXAMPLES = [
+  "42U rack, 8 servers, redundant A/B power, 2 switches, $60k budget",
+  "Small 24U edge rack: 3 low-power servers, 1 switch, keep it under $15k",
+  "GPU training rack — 4 GPU servers, redundant power, 48U, 20kW",
+];
 
 function countChangedPlacements(before: Design, after: Design): number {
   const beforeById = new Map(before.placements.map((p) => [p.id, p]));
@@ -22,101 +26,141 @@ function countChangedPlacements(before: Design, after: Design): number {
   return changed;
 }
 
-const PLACEHOLDER = '42U rack, 8 servers, redundant A/B power, 2 switches, $60k budget';
-
 export function CopilotPanel() {
-  const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
-  const design = useRackStore((s) => s.design);
-  const setDesign = useRackStore((s) => s.setDesign);
-  const setRequirements = useRackStore((s) => s.setRequirements);
-  const appendTrace = useRackStore((s) => s.appendTrace);
+  const applyEvent = useRackStore((s) => s.applyEvent);
+  const clearActivity = useRackStore((s) => s.clearActivity);
+  const isRunning = useRackStore((s) => s.isRunning);
+  const runningAgent = useRackStore((s) => s.runningAgent);
+  const streamPreview = useRackStore((s) => s.streamPreview);
 
   const [text, setText] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const selected = design.placements.find((p) => p.id === selectedPlacementId);
-  const selectedItem = selected ? getCatalogItem(selected.catalogId) : undefined;
+  const abortRef = useRef<AbortController | null>(null);
 
   async function handleGenerate() {
-    if (!text.trim() || loading) return;
-    setLoading(true);
+    if (!text.trim() || isRunning) return;
     setError(null);
+    clearActivity();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch("/api/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
+        signal: controller.signal,
       });
-      const body = (await res.json()) as DesignFromPromptResult & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Failed to generate a design.");
 
-      setDesign(body.design);
-      setRequirements(body.requirements);
-      appendTrace(body.trace);
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        throw new Error(body.error ?? `Request failed (${res.status}).`);
+      }
+
+      for await (const event of readSSE(res.body)) {
+        applyEvent(event);
+        if (event.type === "run:error") setError(event.error);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      applyEvent({ type: "run:error", error: message });
     } finally {
-      setLoading(false);
+      abortRef.current = null;
     }
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 border-l border-border p-3">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">AI Copilot</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
+    <aside className="flex min-h-0 flex-col border-l border-border bg-panel">
+      <header className="shrink-0 border-b border-border px-3 py-2">
+        <h2 className="text-xs font-semibold">AI Copilot</h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">Describe the rack. Agents propose, code decides.</p>
+      </header>
+
+      <div className="scroll-region flex-1">
+        <div className="space-y-3 p-3">
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={PLACEHOLDER}
-            rows={4}
-            className="text-xs"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate();
+            }}
+            placeholder={EXAMPLES[0]}
+            rows={3}
+            className="resize-none text-xs"
           />
-          <Button size="sm" className="w-full" disabled={loading || !text.trim()} onClick={handleGenerate}>
-            {loading ? "Designing..." : "Generate rack"}
-          </Button>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </CardContent>
-      </Card>
 
-      <PendingRepairCard />
+          <div className="flex items-center gap-2">
+            <Button size="sm" className="flex-1" disabled={isRunning || !text.trim()} onClick={handleGenerate}>
+              {isRunning ? "Designing…" : "Generate rack"}
+            </Button>
+            {isRunning && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  abortRef.current?.abort();
+                  applyEvent({ type: "run:error", error: "Cancelled." });
+                }}
+              >
+                Stop
+              </Button>
+            )}
+          </div>
 
-      {selectedItem && selected && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">{selectedItem.name}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1 text-xs text-muted-foreground">
-            <p>
-              U{selected.startU} · {selected.face}
+          {!isRunning && (
+            <div className="space-y-1">
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example}
+                  onClick={() => setText(example)}
+                  className="block w-full rounded-md border border-border/60 px-2 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+              {error}
             </p>
-            <p>
-              {selectedItem.heightU}U · {selectedItem.powerW}W · {selectedItem.weightKg}kg
-            </p>
-            <p>${selectedItem.priceUsd.toLocaleString()}</p>
-            <p className="pt-1 text-[11px]">Press Delete to remove.</p>
-          </CardContent>
-        </Card>
+          )}
+
+          <LiveStream agent={runningAgent} preview={streamPreview} />
+          <PendingRepairCard countChanged={countChangedPlacements} />
+          <SelectedDeviceCard />
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function LiveStream({ agent, preview }: { agent: string | null; preview: string }) {
+  if (!agent) return null;
+  return (
+    <div className="rounded-md border border-primary/40 bg-primary/5 p-2">
+      <div className="flex items-center gap-1.5">
+        <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+        <span className="font-mono text-[10px] uppercase tracking-wider text-primary">{agent}</span>
+      </div>
+      {preview && (
+        <pre className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed text-muted-foreground">
+          {preview.slice(-320)}
+        </pre>
       )}
-
-      <Card className="flex-1 overflow-hidden">
-        <CardHeader>
-          <CardTitle className="text-sm">Trace</CardTitle>
-        </CardHeader>
-        <CardContent className="h-full overflow-hidden p-0">
-          <ScrollArea className="h-full px-4 pb-4">
-            <TraceList />
-          </ScrollArea>
-        </CardContent>
-      </Card>
     </div>
   );
 }
 
-function PendingRepairCard() {
+function PendingRepairCard({
+  countChanged,
+}: {
+  countChanged: (before: Design, after: Design) => number;
+}) {
   const design = useRackStore((s) => s.design);
   const pendingRepair = useRackStore((s) => s.pendingRepair);
   const acceptPendingRepair = useRackStore((s) => s.acceptPendingRepair);
@@ -124,51 +168,74 @@ function PendingRepairCard() {
 
   if (!pendingRepair) return null;
 
-  const changed = countChangedPlacements(design, pendingRepair.design);
+  const changed = countChanged(design, pendingRepair.design);
   const accepted = pendingRepair.trace.some((s) => s.ok);
 
   return (
-    <Card className="border-primary/50">
-      <CardHeader>
-        <CardTitle className="text-sm">Review {changed} change{changed === 1 ? "" : "s"}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
+    <div className="rounded-md border border-primary/50 bg-card p-2.5">
+      <p className="text-xs font-semibold">
+        Review {changed} change{changed === 1 ? "" : "s"}
+      </p>
+      <div className="mt-1.5 space-y-1">
         {pendingRepair.trace.map((step) => (
-          <p key={step.id} className="text-xs text-muted-foreground">
+          <p key={step.id} className="text-[11px] text-muted-foreground">
             {step.detail}
           </p>
         ))}
-        {!accepted && (
-          <p className="text-xs text-destructive">
-            The Verifier couldn&apos;t confirm an improvement — review carefully before accepting.
-          </p>
-        )}
-        <div className="flex gap-2 pt-1">
-          <Button size="sm" className="flex-1" onClick={acceptPendingRepair}>
-            Accept
-          </Button>
-          <Button size="sm" variant="outline" className="flex-1" onClick={rejectPendingRepair}>
-            Reject
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+      {!accepted && (
+        <p className="mt-1.5 text-[11px] text-destructive">
+          The Verifier couldn&apos;t confirm an improvement — review carefully.
+        </p>
+      )}
+      <div className="mt-2 flex gap-2">
+        <Button size="xs" className="flex-1" onClick={acceptPendingRepair}>
+          Accept
+        </Button>
+        <Button size="xs" variant="outline" className="flex-1" onClick={rejectPendingRepair}>
+          Reject
+        </Button>
+      </div>
+    </div>
   );
 }
 
-function TraceList() {
-  const trace = useRackStore((s) => s.trace);
-  if (trace.length === 0) {
-    return <p className="text-xs text-muted-foreground">Agent steps will appear here once you generate a rack.</p>;
-  }
+function SelectedDeviceCard() {
+  const design = useRackStore((s) => s.design);
+  const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
+  const removePlacement = useRackStore((s) => s.removePlacement);
+
+  const selected = design.placements.find((p) => p.id === selectedPlacementId);
+  const item = selected ? getCatalogItem(selected.catalogId) : undefined;
+  if (!selected || !item) return null;
+
+  const specs: [string, string][] = [
+    ["Position", `U${selected.startU} · ${selected.face}`],
+    ["Size", `${item.heightU}U · ${item.depthMm}mm deep`],
+    ["Power", item.powerW > 0 ? `${item.powerW}W draw` : `${item.powerCapacityW ?? 0}W supply`],
+    ["Weight", `${item.weightKg}kg`],
+    ["Price", `$${item.priceUsd.toLocaleString()}`],
+  ];
+
   return (
-    <div className="space-y-2">
-      {trace.map((step) => (
-        <div key={step.id} className="text-xs">
-          <p className={`font-medium ${step.ok ? "text-foreground" : "text-destructive"}`}>{step.label}</p>
-          <p className="text-muted-foreground">{step.detail}</p>
-        </div>
-      ))}
+    <div className="rounded-md border border-border bg-card p-2.5">
+      <p className="text-xs font-semibold">{item.name}</p>
+      <dl className="mt-1.5 space-y-0.5">
+        {specs.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-2 text-[11px]">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="font-mono tabular text-foreground">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <Button
+        size="xs"
+        variant="destructive"
+        className="mt-2 w-full"
+        onClick={() => removePlacement(selected.id)}
+      >
+        Remove
+      </Button>
     </div>
   );
 }

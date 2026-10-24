@@ -13,18 +13,22 @@ import {
 } from "@dnd-kit/core";
 import { getCatalogItem } from "@/data/catalog";
 import { useRackStore } from "@/lib/store";
-import { CatalogPanel } from "@/components/studio/CatalogPanel";
-import { RackElevation } from "@/components/studio/RackElevation";
-import { CopilotPanel } from "@/components/studio/CopilotPanel";
 import { BottomPanel } from "@/components/studio/BottomPanel";
-import { VersionHistoryPanel } from "@/components/studio/VersionHistoryPanel";
+import { CatalogPanel } from "@/components/studio/CatalogPanel";
+import { CopilotPanel } from "@/components/studio/CopilotPanel";
+import { RackElevation } from "@/components/studio/RackElevation";
+import { SummaryBar } from "@/components/studio/SummaryBar";
 import { Toolbar } from "@/components/studio/Toolbar";
-import { Badge } from "@/components/ui/badge";
+import { VersionHistoryPanel } from "@/components/studio/VersionHistoryPanel";
 import { Button } from "@/components/ui/button";
 
 export default function StudioPage() {
-  const { face, addPlacement, movePlacement, selectedPlacementId, removePlacement, revalidate } =
-    useRackStore();
+  const face = useRackStore((s) => s.face);
+  const addPlacement = useRackStore((s) => s.addPlacement);
+  const movePlacement = useRackStore((s) => s.movePlacement);
+  const removePlacement = useRackStore((s) => s.removePlacement);
+  const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
+  const revalidate = useRackStore((s) => s.revalidate);
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -53,10 +57,9 @@ export default function StudioPage() {
     if (!data) return;
     if (data.type === "catalog") {
       setDraggingLabel(getCatalogItem(data.catalogId)?.name ?? null);
-    } else if (data.type === "placement") {
-      const design = useRackStore.getState().design;
-      const placement = design.placements.find((p) => p.id === data.placementId);
-      setDraggingLabel(placement ? getCatalogItem(placement.catalogId)?.name ?? null : null);
+    } else {
+      const placement = useRackStore.getState().design.placements.find((p) => p.id === data.placementId);
+      setDraggingLabel(placement ? (getCatalogItem(placement.catalogId)?.name ?? null) : null);
     }
   }
 
@@ -74,43 +77,49 @@ export default function StudioPage() {
 
     if (activeData.type === "catalog") {
       addPlacement(activeData.catalogId, overData.startU, face);
-    } else if (activeData.type === "placement") {
+    } else {
       movePlacement(activeData.placementId, overData.startU, face);
     }
   }
 
   return (
     <DndContext id="studio-dnd" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex h-screen flex-col">
-        <header className="flex items-center justify-between border-b border-border px-4 py-2">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold">RackVerse</h1>
-            <Badge variant="outline">Studio</Badge>
+      {/* h-dvh + min-h-0 at every level is what makes the inner panels scroll
+          instead of growing the page. */}
+      <div className="flex h-dvh flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center justify-between border-b border-border bg-panel px-3 py-2">
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-sm font-bold tracking-tight">RackVerse</h1>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              AI proposes · code decides
+            </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Toolbar />
             <VersionHistoryPanel />
-            <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/lab" />}>
+            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/lab" />}>
               Lab
             </Button>
           </div>
         </header>
-        <div className="grid flex-1 grid-cols-[240px_1fr_280px] overflow-hidden">
+
+        <SummaryBar />
+
+        <div className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)_280px] overflow-hidden">
           <CatalogPanel />
-          <div className="flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-hidden">
-              <RackElevation />
-            </div>
-            <div className="h-56 shrink-0">
-              <BottomPanel />
-            </div>
+
+          <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(140px,34%)] overflow-hidden">
+            <RackElevation />
+            <BottomPanel />
           </div>
+
           <CopilotPanel />
         </div>
       </div>
-      <DragOverlay>
+
+      <DragOverlay dropAnimation={null}>
         {draggingLabel && (
-          <div className="rounded-md border border-primary bg-card px-2 py-1 text-xs shadow-lg">
+          <div className="rounded-md border border-primary bg-card px-2 py-1 text-[11px] shadow-lg">
             {draggingLabel}
           </div>
         )}

@@ -2,6 +2,7 @@ import { catalogSummary } from "@/data/catalog";
 import { complete } from "@/lib/llm";
 import { ArchitectOutputSchema } from "@/lib/schemas";
 import type { Requirements } from "@/lib/types";
+import type { AgentCallOptions } from "@/lib/agents/requirements";
 
 export const RACK_ARCHITECT_SYSTEM = `You are RackArchitect, part of a server rack design system.
 
@@ -18,7 +19,7 @@ Rules:
 
 Respond with ONLY a JSON object matching the required schema: { rackName, mountingDepthMm, maxLoadKg, placements: [{catalogId, startU, face, feed?}], rationale }. No prose outside the JSON, no markdown fences.`;
 
-export async function runArchitect(requirements: Requirements, runId?: string) {
+export async function runArchitect(requirements: Requirements, opts: AgentCallOptions = {}) {
   const user = JSON.stringify({
     requirements,
     catalog: catalogSummary(),
@@ -28,6 +29,6 @@ export async function runArchitect(requirements: Requirements, runId?: string) {
     system: RACK_ARCHITECT_SYSTEM,
     user,
     schema: ArchitectOutputSchema,
-    runId,
+    ...opts,
   });
 }

@@ -1,35 +1,54 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { getCatalogItem } from "@/data/catalog";
 import { useRackStore } from "@/lib/store";
-import type { Placement } from "@/lib/types";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Category, Placement } from "@/lib/types";
 
-const U_PX = 18;
+const U_PX = 22;
+
+const CATEGORY_ACCENT: Record<Category, string> = {
+  server: "var(--chart-1)",
+  switch: "var(--chart-5)",
+  storage: "var(--chart-3)",
+  ups: "var(--chart-4)",
+  pdu: "var(--chart-4)",
+  patch: "var(--muted-foreground)",
+  blank: "var(--border)",
+};
 
 function RowSlot({ startU }: { startU: number }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `slot:${startU}`,
-    data: { type: "slot", startU },
-  });
+  const { setNodeRef, isOver } = useDroppable({ id: `slot:${startU}`, data: { type: "slot", startU } });
+  const major = startU % 5 === 0;
+
   return (
     <div
       ref={setNodeRef}
-      className={`flex items-center border-b border-border/60 pl-8 text-[9px] text-muted-foreground/50 ${
-        isOver ? "bg-primary/10" : ""
-      }`}
+      className={`relative flex items-center transition-colors ${isOver ? "bg-primary/20" : ""}`}
       style={{ height: U_PX }}
     >
-      {startU % 2 === 0 ? `U${startU}` : ""}
+      <div
+        className={`w-9 shrink-0 pr-2 text-right font-mono text-[10px] tabular ${
+          major ? "text-muted-foreground" : "text-muted-foreground/35"
+        }`}
+      >
+        {major || startU === 1 ? startU : ""}
+      </div>
+      <div
+        className={`h-full flex-1 border-t border-dashed ${
+          major ? "border-border" : "border-border/35"
+        }`}
+      />
     </div>
   );
 }
 
 function PlacementBlock({ placement, violated }: { placement: Placement; violated: boolean }) {
   const item = getCatalogItem(placement.catalogId);
-  const { design, selectedPlacementId, selectPlacement } = useRackStore();
+  const rackHeightU = useRackStore((s) => s.design.rack.heightU);
+  const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
+  const selectPlacement = useRackStore((s) => s.selectPlacement);
   const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({
     id: `placement:${placement.id}`,
     data: { type: "placement", placementId: placement.id },
@@ -37,18 +56,9 @@ function PlacementBlock({ placement, violated }: { placement: Placement; violate
 
   if (!item || item.heightU <= 0) return null;
 
-  const topU = design.rack.heightU - (placement.startU + item.heightU - 1);
+  const topU = rackHeightU - (placement.startU + item.heightU - 1);
   const selected = selectedPlacementId === placement.id;
-
-  const categoryColor: Record<string, string> = {
-    server: "bg-sky-950/60 border-sky-700/60",
-    switch: "bg-violet-950/60 border-violet-700/60",
-    ups: "bg-amber-950/60 border-amber-700/60",
-    pdu: "bg-amber-950/40 border-amber-700/40",
-    storage: "bg-emerald-950/60 border-emerald-700/60",
-    patch: "bg-zinc-800/60 border-zinc-600/60",
-    blank: "bg-zinc-900/40 border-zinc-700/30",
-  };
+  const height = item.heightU * U_PX - 3;
 
   return (
     <div
@@ -59,74 +69,52 @@ function PlacementBlock({ placement, violated }: { placement: Placement; violate
         e.stopPropagation();
         selectPlacement(placement.id);
       }}
-      className={`absolute left-8 right-1 flex cursor-grab items-center justify-between rounded-sm border px-2 text-[11px] active:cursor-grabbing ${
-        categoryColor[item.category] ?? "bg-card border-border"
-      } ${selected ? "ring-2 ring-primary" : ""} ${
-        violated ? "outline outline-2 outline-destructive" : ""
+      className={`group absolute left-9 right-0 flex cursor-grab items-center gap-2 overflow-hidden rounded-[3px] border bg-card pl-0 pr-2 text-[11px] shadow-sm transition-shadow active:cursor-grabbing ${
+        violated
+          ? "border-destructive/70 ring-1 ring-destructive/40"
+          : selected
+            ? "border-primary ring-1 ring-primary/50"
+            : "border-border hover:border-muted-foreground/50"
       } ${isDragging ? "opacity-40" : ""}`}
       style={{
-        top: topU * U_PX,
-        height: item.heightU * U_PX - 2,
+        top: topU * U_PX + 1,
+        height,
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-        zIndex: isDragging ? 50 : undefined,
+        zIndex: isDragging ? 50 : selected ? 20 : 10,
       }}
-      title={item.name}
+      title={`${item.name} — U${placement.startU}${item.heightU > 1 ? `-U${placement.startU + item.heightU - 1}` : ""}`}
     >
-      <span className="truncate font-medium">{item.name}</span>
-      <span className="shrink-0 text-muted-foreground">{item.heightU}U</span>
+      <span
+        className="h-full w-1 shrink-0"
+        style={{ backgroundColor: violated ? "var(--destructive)" : CATEGORY_ACCENT[item.category] }}
+      />
+      <span className="min-w-0 flex-1 truncate pl-1 font-medium text-foreground">{item.name}</span>
+      {height >= 20 && (
+        <span className="hidden shrink-0 font-mono text-[10px] tabular text-muted-foreground sm:inline">
+          {item.powerW > 0 ? `${item.powerW}W` : ""}
+        </span>
+      )}
+      <span className="shrink-0 rounded-sm bg-muted px-1 font-mono text-[10px] tabular text-muted-foreground">
+        {item.heightU}U
+      </span>
     </div>
   );
 }
 
-function ZeroUTray() {
-  const { design, face, selectedPlacementId, selectPlacement } = useRackStore();
-  const { setNodeRef, isOver } = useDroppable({ id: "slot:0u", data: { type: "slot", startU: 1 } });
-
-  const zeroUPlacements = design.placements.filter((p) => {
-    const item = getCatalogItem(p.catalogId);
-    return item && item.heightU <= 0 && p.face === face;
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`mt-2 min-h-14 rounded-md border border-dashed border-border p-2 ${isOver ? "bg-primary/10" : ""}`}
-    >
-      <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        Side-mount (0U) — {face}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {zeroUPlacements.map((p) => {
-          const item = getCatalogItem(p.catalogId)!;
-          const selected = selectedPlacementId === p.id;
-          return (
-            <ZeroUChip key={p.id} placement={p} name={item.name} selected={selected} onSelect={() => selectPlacement(p.id)} />
-          );
-        })}
-        {zeroUPlacements.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">Drop PDUs here.</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ZeroUChip({
-  placement,
-  name,
-  selected,
-  onSelect,
-}: {
-  placement: Placement;
-  name: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
+function ZeroUChip({ placement }: { placement: Placement }) {
+  const item = getCatalogItem(placement.catalogId);
+  const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
+  const selectPlacement = useRackStore((s) => s.selectPlacement);
+  const setFeed = useRackStore((s) => s.setFeed);
+  const violatedIds = useRackStore((s) => s.violatedPlacementIds);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `placement:${placement.id}`,
     data: { type: "placement", placementId: placement.id },
   });
-  const setFeed = useRackStore((s) => s.setFeed);
+
+  if (!item) return null;
+  const selected = selectedPlacementId === placement.id;
+  const violated = violatedIds.has(placement.id);
   const nextFeed = placement.feed === undefined ? "A" : placement.feed === "A" ? "B" : undefined;
 
   return (
@@ -136,65 +124,134 @@ function ZeroUChip({
       {...attributes}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        selectPlacement(placement.id);
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setFeed(placement.id, nextFeed);
       }}
-      className={`rounded border px-2 py-1 text-[11px] ${
-        selected ? "ring-2 ring-primary" : ""
-      } ${isDragging ? "opacity-40" : ""} bg-amber-950/40 border-amber-700/40`}
-      title={`${name} — double-click to cycle feed (currently ${placement.feed ?? "none"})`}
+      className={`flex items-center gap-1.5 rounded-[3px] border bg-card px-2 py-1 text-[11px] transition-colors ${
+        violated
+          ? "border-destructive/70"
+          : selected
+            ? "border-primary ring-1 ring-primary/50"
+            : "border-border hover:border-muted-foreground/50"
+      } ${isDragging ? "opacity-40" : ""}`}
+      title={`${item.name} — double-click to cycle power feed (currently ${placement.feed ?? "unassigned"})`}
     >
-      {name} {placement.feed ? `· Feed ${placement.feed}` : ""}
+      <span className="size-1.5 rounded-full" style={{ backgroundColor: CATEGORY_ACCENT[item.category] }} />
+      <span className="truncate">{item.name}</span>
+      <span
+        className={`rounded-sm px-1 font-mono text-[10px] ${
+          placement.feed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {placement.feed ? `FEED ${placement.feed}` : "NO FEED"}
+      </span>
     </button>
   );
 }
 
+function ZeroUTray() {
+  const face = useRackStore((s) => s.face);
+  const placements = useRackStore((s) => s.design.placements);
+  const { setNodeRef, isOver } = useDroppable({ id: "slot:0u", data: { type: "slot", startU: 1 } });
+
+  const zeroU = placements.filter((p) => {
+    const item = getCatalogItem(p.catalogId);
+    return item && item.heightU <= 0 && p.face === face;
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mt-3 rounded-md border border-dashed p-2.5 transition-colors ${
+        isOver ? "border-primary bg-primary/10" : "border-border"
+      }`}
+    >
+      <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        0U side-mount · {face}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {zeroU.map((p) => (
+          <ZeroUChip key={p.id} placement={p} />
+        ))}
+        {zeroU.length === 0 && (
+          <p className="text-[11px] text-muted-foreground/70">Drop PDUs here — they don&apos;t consume rack units.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function RackElevation() {
-  const { design, face, setFace, violations, selectPlacement } = useRackStore();
+  const design = useRackStore((s) => s.design);
+  const face = useRackStore((s) => s.face);
+  const setFace = useRackStore((s) => s.setFace);
+  const selectPlacement = useRackStore((s) => s.selectPlacement);
+  const violatedIds = useRackStore((s) => s.violatedPlacementIds);
+
   const rows = useMemo(
     () => Array.from({ length: design.rack.heightU }, (_, i) => design.rack.heightU - i),
     [design.rack.heightU]
   );
-
-  const violatedPlacementIds = useMemo(
-    () => new Set(violations.flatMap((v) => v.placementIds)),
-    [violations]
-  );
-
   const facePlacements = design.placements.filter((p) => p.face === face);
 
+  // Racks fill bottom-up, so a freshly generated design is off-screen at the
+  // top of a tall rack. Bring the populated region into view.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const topmostUsedU = facePlacements.reduce((max, p) => {
+    const item = getCatalogItem(p.catalogId);
+    if (!item || item.heightU <= 0) return max;
+    return Math.max(max, p.startU + item.heightU - 1);
+  }, 0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || topmostUsedU === 0) return;
+    const topOfEquipmentPx = (design.rack.heightU - topmostUsedU) * U_PX;
+    el.scrollTo({ top: Math.max(0, topOfEquipmentPx - U_PX * 2), behavior: "smooth" });
+  }, [design.version, topmostUsedU, design.rack.heightU]);
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border p-2">
-        <h2 className="text-sm font-semibold">
-          {design.rack.name} — {design.rack.heightU}U
-        </h2>
-        <Tabs value={face} onValueChange={(v) => setFace(v as "front" | "rear")}>
-          <TabsList>
-            <TabsTrigger value="front">Front</TabsTrigger>
-            <TabsTrigger value="rear">Rear</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-      <div className="flex-1 overflow-auto p-3" onClick={() => selectPlacement(null)}>
-        <div
-          className="relative mx-auto border border-border bg-background/40"
-          style={{ width: 280, height: design.rack.heightU * U_PX }}
-        >
-          {rows.map((u) => (
-            <RowSlot key={u} startU={u} />
-          ))}
-          {facePlacements.map((p) => (
-            <PlacementBlock key={p.id} placement={p} violated={violatedPlacementIds.has(p.id)} />
+    <section className="flex min-h-0 flex-col">
+      <header className="flex shrink-0 items-center justify-between border-b border-border bg-panel px-3 py-2">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="truncate text-xs font-semibold">{design.rack.name}</h2>
+          <span className="font-mono text-[10px] tabular text-muted-foreground">
+            {design.rack.heightU}U · {design.rack.mountingDepthMm}mm · v{design.version}
+          </span>
+        </div>
+        <div className="flex shrink-0 rounded-md border border-border p-0.5">
+          {(["front", "rear"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFace(f)}
+              className={`rounded-[4px] px-2.5 py-0.5 text-[11px] capitalize transition-colors ${
+                face === f ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f}
+            </button>
           ))}
         </div>
-        <div className="mx-auto" style={{ width: 280 }}>
+      </header>
+
+      <div ref={scrollRef} className="scroll-region flex-1 p-4" onClick={() => selectPlacement(null)}>
+        <div className="mx-auto" style={{ maxWidth: 380 }}>
+          <div className="relative rounded-md border border-border bg-panel/60 p-1.5">
+            <div className="relative" style={{ height: design.rack.heightU * U_PX }}>
+              {rows.map((u) => (
+                <RowSlot key={u} startU={u} />
+              ))}
+              {facePlacements.map((p) => (
+                <PlacementBlock key={p.id} placement={p} violated={violatedIds.has(p.id)} />
+              ))}
+            </div>
+          </div>
           <ZeroUTray />
         </div>
       </div>
-    </div>
+    </section>
   );
 }
