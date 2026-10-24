@@ -25,7 +25,7 @@ The main page is a fleet dashboard: create racks, review each rack's engineering
 
 In the Studio, **Rack settings** changes height, mounting depth, load rating and power budget. **Add equipment** creates a device with editable type, price, dimensions, weight, power, supply capacity, outlets, PSUs and network ports. Built-in devices can be edited and reset to their source specs. Edits update the checks, totals, views and AI catalog. On smaller screens, use the Equipment, Rack and Copilot tabs.
 
-The **Break it** selector simulates a 30% utility power cut, a failed B-side PDU, or a 25% CapEx cut. Each change updates the saved rack or its requirements and immediately reruns deterministic checks. The Studio telemetry bar summarizes completed, rack-scoped repair runs: first-round pass rate, average rounds, and end-to-end duration. Dollar cost and adapter comparisons remain blank until verified pricing and Mubit evaluation data are available. Fleet snapshots already persist per rack in local storage and flush on page exit, including design versions and conversation history.
+The **Break it** selector simulates a 30% utility power cut, a failed B-side PDU, or a 25% CapEx cut. Each change updates the saved rack or its requirements and immediately reruns deterministic checks. The Studio telemetry bar summarizes completed, rack-scoped repair runs: first-round pass rate, average rounds, end-to-end duration, and a token-based provider paid-tier list-price estimate per validated repair. It does not represent a Mubit invoice or adapter cost. Adapter comparisons stay blank until verified Mubit evaluation data are available. Fleet snapshots already persist per rack in local storage and flush on page exit, including design versions and conversation history.
 
 ## Architecture
 
@@ -84,6 +84,8 @@ Prompt → rendered, validated rack in **~4-6s**; Break → Repair → Verify in
 ## Honesty
 
 Local metrics (the benchmark on `/lab`, call logs, lessons learned) are reported as local metrics. Nothing is claimed as a Mubit adapter result unless it's been verified in the Mubit console's "Try models".
+
+The Mubit Tasks/Adapters status shown in the dashboard, Studio and Lab comes from a dated, user-provided console snapshot in `data/mubit-console-snapshot.json`. It records 26 learning tasks, zero live tasks, and RepairAgent v1 below its quality target (60% on 15 tests versus 85%). This is training evidence, not adapter inference telemetry. The corrected paired A/B benchmark was stopped by the provider's daily free-tier quota after three confirmed held-out pairs; the older unpaired result is labeled preliminary in `/lab`.
 
 Production agent traffic uses one pinned Gemini model and a stable request format so calls for different racks build the same four Mubit tasks. The `pick-model` diagnostic opts out of Mubit recording. Temporary provider 503s are retried with progress shown in the Copilot; a final failure is shown plainly. See [MUBIT_NOTES.md](./MUBIT_NOTES.md) for the task audit and [TESTING.md](./TESTING.md) for verification.
 

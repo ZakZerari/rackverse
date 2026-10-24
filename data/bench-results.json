@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-10-24T21:04:16.532Z",
+  "trainSeeds": [
+    1,
+    30
+  ],
+  "heldOutSeeds": [
+    1000,
+    1009
+  ],
+  "lessonsLearnedFromTrain": 4,
+  "comparisonDesignsShared": false,
+  "pairedAttempt": {
+    "status": "stopped_by_provider_daily_quota",
+    "confirmedPairs": 3,
+    "requestedPairs": 10,
+    "observedAt": "2026-10-24T21:57:56.000Z",
+    "reason": "Gemini free-tier daily limit of 500 requests; provider retry hint was about nine hours."
+  },
+  "configs": {
+    "A": {
+      "label": "Baseline (no lessons)",
+      "n": 10,
+      "firstAttemptValidPct": 80,
+      "fullyRepairedPct": 100,
+      "avgRepairAttempts": 1,
+      "rejectRatePct": 0,
+      "avgLatencyMs": 10657,
+      "tokensPerValidDesign": 3868
+    },
+    "B": {
+      "label": "With verified lessons",
+      "n": 10,
+      "firstAttemptValidPct": 100,
+      "fullyRepairedPct": null,
+      "avgRepairAttempts": 0,
+      "rejectRatePct": 0,
+      "avgLatencyMs": 16810,
+      "tokensPerValidDesign": 3210
+    },
+    "C": {
+      "label": "Mubit adapter",
+      "note": "No passed adapter: user-provided console snapshot shows RepairAgent v1 below target (60% on 15 tests; target 85%). Try models latency and cost are unavailable."
+    }
+  }
+}

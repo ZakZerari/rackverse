@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { getMubitModel, isTransientError, MUBIT_TASK_MODEL, retryAfterMs, toGeminiJsonSchema, userFacingModelError } from "@/lib/llm";
+import { getMubitModel, isDailyQuotaError, isTransientError, MUBIT_TASK_MODEL, retryAfterMs, toGeminiJsonSchema, userFacingModelError } from "@/lib/llm";
 import { PatchSchema } from "@/lib/schemas";
 
 describe("retryAfterMs", () => {
@@ -112,5 +112,48 @@ describe("toGeminiJsonSchema", () => {
     expect(deepFindKeys(converted, "oneOf")).toEqual([]);
     expect(deepFindKeys(converted, "const")).toEqual([]);
     expect(deepFindKeys(converted, "anyOf").length).toBeGreaterThan(0);
+  });
+});
+
+describe("isDailyQuotaError", () => {
+  // Verbatim from the provider when today's free-tier allowance ran out
+  // mid-training-run. The per-minute 429 and this one share a status code,
+  // so only the body tells them apart.
+  const DAILY = Object.assign(new Error(
+    'You exceeded your current quota, please check your plan and billing details. ' +
+    '* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, ' +
+    'limit: 500, model: gemini-3.5-flash-lite, description: Generate content requests per day limit exceeded ' +
+    'on Free Tier. Please retry in 9h3m36.943372472s.'
+  ), { status: 429 });
+
+  const PER_MINUTE = Object.assign(new Error(
+    'You exceeded your current quota. Quota exceeded for metric: ' +
+    'generativelanguage.googleapis.com/generate_requests, limit: 15. Please retry in 50.6s.'
+  ), { status: 429 });
+
+  it("recognises the daily cap", () => {
+    expect(isDailyQuotaError(DAILY)).toBe(true);
+  });
+
+  it("does not mistake the per-minute cap for it", () => {
+    expect(isDailyQuotaError(PER_MINUTE)).toBe(false);
+  });
+
+  it("is not transient — waiting out a 9-hour window burns the retry budget", () => {
+    expect(isTransientError(DAILY)).toBe(false);
+    expect(isTransientError(PER_MINUTE)).toBe(true);
+  });
+
+  it("sees through the wrapper complete() throws", () => {
+    // Callers never get the provider error directly — they get the
+    // user-facing one with the original as its cause.
+    const wrapped = new Error(userFacingModelError(DAILY), { cause: DAILY });
+    expect(isDailyQuotaError(wrapped)).toBe(true);
+    expect(isDailyQuotaError(new Error("something else", { cause: PER_MINUTE }))).toBe(false);
+  });
+
+  it("tells the user the real reason rather than 'try again shortly'", () => {
+    expect(userFacingModelError(DAILY)).toMatch(/daily request quota/i);
+    expect(userFacingModelError(PER_MINUTE)).toMatch(/try again shortly/i);
   });
 });

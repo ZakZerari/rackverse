@@ -57,4 +57,27 @@ describe("rack-scoped Mubit evidence", () => {
       repairRuns: 2, firstRoundPassRatePct: 50, averageRepairRounds: 2, averageRepairDurationMs: 2200,
     });
   });
+
+  it("estimates provider list cost only when every validated repair call has token usage", () => {
+    const run: RackRunRecord = { rackId: "rack-a", runId: "rack:rack-a:priced", kind: "repair",
+      timestamp: "2026-10-24T12:00:00Z", status: "completed", initialHardCount: 1,
+      finalHardCount: 0, repairRounds: 1, firstRoundPassed: true, durationMs: 2000 };
+    const used = { ...call(run.runId, run.timestamp, true, 1000, "RepairAgent"),
+      promptTokens: 1000, completionTokens: 200 };
+    expect(rackMetrics(["rack-a"], [used], [run])["rack-a"].providerListCostPerValidatedRepairUsd).toBe(0.0008);
+    expect(rackMetrics(["rack-a"], [used, call(run.runId, run.timestamp, false, 1000, "RepairAgent")], [run])["rack-a"]
+      .providerListCostPerValidatedRepairUsd).toBeNull();
+  });
+
+  it("includes failed repair runs in the first-round pass denominator", () => {
+    const runs: RackRunRecord[] = [
+      { rackId: "rack-a", runId: "rack:rack-a:ok", kind: "repair", timestamp: "2026-10-24T10:00:00Z",
+        status: "completed", initialHardCount: 1, finalHardCount: 0, repairRounds: 1, firstRoundPassed: true, durationMs: 1000 },
+      { rackId: "rack-a", runId: "rack:rack-a:failed", kind: "repair", timestamp: "2026-10-24T11:00:00Z",
+        status: "error", initialHardCount: 1, firstRoundPassed: false, durationMs: 3000 },
+    ];
+    expect(rackMetrics(["rack-a"], [], runs)["rack-a"]).toMatchObject({
+      repairRuns: 2, firstRoundPassRatePct: 50, averageRepairDurationMs: 2000,
+    });
+  });
 });

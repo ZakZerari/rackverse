@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { MubitConsoleSnapshot } from "@/lib/mubitConsoleSnapshot";
 
 interface AgentStat {
   agent: string;
@@ -46,12 +47,15 @@ interface RepairVerdict {
 interface ConfigResult {
   label: string;
   n?: number;
-  firstAttemptValidPct?: number;
+  firstRoundRepairPassPct?: number;
   fullyRepairedPct?: number | null;
   avgRepairAttempts?: number;
+  avgRepairRounds?: number;
+  avgEndToEndMs?: number;
   rejectRatePct?: number;
   avgLatencyMs?: number | null;
   tokensPerValidDesign?: number | null;
+  providerListCostPerValidatedRepairUsd?: number | null;
   note?: string;
 }
 
@@ -60,6 +64,8 @@ interface BenchResults {
   trainSeeds: [number, number];
   heldOutSeeds: [number, number];
   lessonsLearnedFromTrain: number;
+  comparisonDesignsShared?: boolean;
+  pairedAttempt?: { status: string; confirmedPairs: number; requestedPairs: number; observedAt: string; reason: string };
   configs: { A: ConfigResult; B: ConfigResult; C: ConfigResult };
 }
 
@@ -70,6 +76,8 @@ export default function LabPage() {
   const [bench, setBench] = useState<BenchResults | null>(null);
   const [benchChecked, setBenchChecked] = useState(false);
   const [repairVerdicts, setRepairVerdicts] = useState<RepairVerdict[]>([]);
+  const [verdictCounts, setVerdictCounts] = useState({ total: 0, improved: 0, fullyRepaired: 0, rejected: 0 });
+  const [mubitSnapshot, setMubitSnapshot] = useState<MubitConsoleSnapshot | null>(null);
 
   useEffect(() => {
     fetch("/api/calls")
@@ -89,16 +97,25 @@ export default function LabPage() {
       });
     fetch("/api/repair-verdicts", { cache: "no-store" })
       .then((r) => r.json())
-      .then((body: { verdicts?: RepairVerdict[] }) => setRepairVerdicts(body.verdicts ?? []))
+      .then((body: { verdicts?: RepairVerdict[]; total?: number; improved?: number; fullyRepaired?: number; rejected?: number }) => {
+        setRepairVerdicts(body.verdicts ?? []);
+        setVerdictCounts({ total: body.total ?? 0, improved: body.improved ?? 0,
+          fullyRepaired: body.fullyRepaired ?? 0, rejected: body.rejected ?? 0 });
+      })
+      .catch(() => {});
+    fetch("/api/mubit-console-snapshot", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((body: { available?: boolean; snapshot?: MubitConsoleSnapshot }) =>
+        setMubitSnapshot(body.available ? body.snapshot ?? null : null))
       .catch(() => {});
   }, []);
 
   const chartData = bench
     ? [
         {
-          metric: "First-attempt valid %",
-          A: bench.configs.A.firstAttemptValidPct,
-          B: bench.configs.B.firstAttemptValidPct,
+          metric: "First-round repair %",
+          A: bench.configs.A.firstRoundRepairPassPct,
+          B: bench.configs.B.firstRoundRepairPassPct,
         },
         {
           metric: "Fully repaired %",
@@ -129,10 +146,9 @@ export default function LabPage() {
 
       <Card className="border-amber-700/40 bg-amber-950/10">
         <CardContent className="pt-4 text-sm">
-          <strong>Honesty line:</strong> everything on this page below &ldquo;Mubit tasks&rdquo; is
-          computed <em>locally</em> from this app&apos;s own call log and benchmark run — not
-          verified by Mubit. Config C (an actual Mubit adapter) is never computed or claimed here;
-          it&apos;s a placeholder until someone manually checks Try models in the Mubit console.
+          <strong>Evidence sources:</strong> rack checks, call logs and A/B benchmark figures are computed locally.
+          The Mubit console status below comes from a user-provided snapshot at its stated time.
+          No passed adapter comparison is available, so Config C has no latency, cost or pass-rate figures.
         </CardContent>
       </Card>
 
@@ -182,8 +198,8 @@ export default function LabPage() {
           <p>
             Mubit groups calls into a <strong>task</strong> when they share the same model,
             instructions (system prompt), tools, tool choice, and output format. Each agent above
-            uses one constant system prompt and one model, so each one forms its own stable,
-            trainable task — that&apos;s a deliberate architectural choice, not an accident.
+            uses one pinned system prompt and model. Historical task variants remain in Mubit;
+            the local fingerprint proves what this app sent, while the console decides actual grouping.
           </p>
           <p>
             By default a task starts training an adapter once it reaches <strong>25 kept
@@ -193,6 +209,24 @@ export default function LabPage() {
           </p>
         </CardContent>
       </Card>
+
+      {mubitSnapshot && <Card>
+        <CardHeader><CardTitle>Mubit console snapshot</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-xs">
+          <p className="text-muted-foreground">{mubitSnapshot.source} · captured {new Date(mubitSnapshot.capturedAt).toLocaleString()} · {mubitSnapshot.tasksTotal} tasks, {mubitSnapshot.learningTasks} learning, {mubitSnapshot.liveTasks} live.</p>
+          <div className="rounded-md border border-[var(--warn)]/40 bg-[var(--warn)]/10 px-3 py-2">
+            <strong>{mubitSnapshot.adapter.task} {mubitSnapshot.adapter.version}: {mubitSnapshot.adapter.status}</strong>
+            <span className="ml-2">{mubitSnapshot.adapter.qualityPct}% quality on {mubitSnapshot.adapter.testCases} tests · target {mubitSnapshot.adapter.targetPct}% · {mubitSnapshot.adapter.baseModel}</span>
+          </div>
+          <Table><TableHeader><TableRow><TableHead>Selected task</TableHead><TableHead>Status</TableHead><TableHead>Calls · 7d</TableHead><TableHead>Console examples</TableHead></TableRow></TableHeader>
+            <TableBody>{mubitSnapshot.tasks.map((task) => <TableRow key={task.name}>
+              <TableCell className="font-medium">{task.name}</TableCell><TableCell>{task.status}</TableCell>
+              <TableCell className="font-mono">{task.calls7d}</TableCell>
+              <TableCell className="font-mono">{task.kept === null ? "Not shown" : `${task.kept}/${task.needed}`}</TableCell>
+            </TableRow>)}</TableBody></Table>
+          <a href={mubitSnapshot.consoleUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-primary hover:underline">Open Mubit console ↗</a>
+        </CardContent>
+      </Card>}
 
       <Card>
         <CardHeader>
@@ -214,6 +248,10 @@ export default function LabPage() {
           <CardTitle>Repair verdicts for Mubit Requests review</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-3 font-mono text-xs"><span>{verdictCounts.total} proposals checked</span>
+            <span>{verdictCounts.improved} reduced hard issues</span>
+            <span className="text-[var(--ok)]">{verdictCounts.fullyRepaired} ended with zero hard issues</span>
+            <span className="text-destructive">{verdictCounts.rejected} rejected</span></div>
           <p className="text-xs text-muted-foreground">
             The deterministic verifier suggests Good or Bad for each proposal and keeps its Mubit request ID.
             These are local verdicts. Mubit Requests offers manual Good/Bad ratings; its docs do not specify
@@ -242,7 +280,7 @@ export default function LabPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Benchmark — Config A vs. B on the held-out set</CardTitle>
+          <CardTitle>{bench?.comparisonDesignsShared ? "Benchmark — paired repairs on the held-out set" : "Benchmark — preliminary unpaired run"}</CardTitle>
         </CardHeader>
         <CardContent>
           {!benchChecked && <p className="text-sm text-muted-foreground">Loading...</p>}
@@ -255,9 +293,15 @@ export default function LabPage() {
           )}
           {bench && (
             <div className="space-y-4">
+              {!bench.comparisonDesignsShared && <p className="rounded-md border border-[var(--warn)]/40 bg-[var(--warn)]/10 px-3 py-2 text-xs">
+                The two arms regenerated their starting racks independently. Their difference cannot be attributed
+                to local lessons. A corrected paired run is required before claiming a repair improvement.
+                {bench.pairedAttempt && ` The corrected run confirmed ${bench.pairedAttempt.confirmedPairs}/${bench.pairedAttempt.requestedPairs} pairs before stopping: ${bench.pairedAttempt.reason}`}
+              </p>}
               <p className="text-xs text-muted-foreground">
                 Train seeds {bench.trainSeeds[0]}-{bench.trainSeeds[1]} ({bench.lessonsLearnedFromTrain}{" "}
                 lesson(s) learned) · held-out seeds {bench.heldOutSeeds[0]}-{bench.heldOutSeeds[1]} ·
+                {bench.comparisonDesignsShared ? " identical starting faults in A/B ·" : " independent starting racks (legacy run) ·"}
                 generated {new Date(bench.generatedAt).toLocaleString()}
               </p>
               <Table>
@@ -265,11 +309,13 @@ export default function LabPage() {
                   <TableRow>
                     <TableHead>Config</TableHead>
                     <TableHead>n</TableHead>
-                    <TableHead>1st-attempt valid</TableHead>
+                    <TableHead>1st-round repair</TableHead>
                     <TableHead>Fully repaired</TableHead>
                     <TableHead>Avg repair attempts</TableHead>
+                    <TableHead>Avg rounds</TableHead>
                     <TableHead>Reject rate</TableHead>
-                    <TableHead>Avg latency</TableHead>
+                    <TableHead>End-to-end</TableHead>
+                    <TableHead>Provider list $ / valid repair</TableHead>
                     <TableHead>Tokens / valid design</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -280,25 +326,27 @@ export default function LabPage() {
                       <TableRow key={key}>
                         <TableCell className="font-medium">{c.label}</TableCell>
                         <TableCell>{c.n}</TableCell>
-                        <TableCell>{c.firstAttemptValidPct}%</TableCell>
+                        <TableCell>{c.firstRoundRepairPassPct == null ? "—" : `${c.firstRoundRepairPassPct}%`}</TableCell>
                         <TableCell>{c.fullyRepairedPct === null ? "—" : `${c.fullyRepairedPct}%`}</TableCell>
                         <TableCell>{c.avgRepairAttempts}</TableCell>
+                        <TableCell>{c.avgRepairRounds ?? "—"}</TableCell>
                         <TableCell>{c.rejectRatePct}%</TableCell>
-                        <TableCell>{c.avgLatencyMs ? `${(c.avgLatencyMs / 1000).toFixed(1)}s` : "—"}</TableCell>
+                        <TableCell>{c.avgEndToEndMs ? `${(c.avgEndToEndMs / 1000).toFixed(1)}s` : "—"}</TableCell>
+                        <TableCell>{c.providerListCostPerValidatedRepairUsd == null ? "—" : `$${c.providerListCostPerValidatedRepairUsd.toFixed(4)}`}</TableCell>
                         <TableCell>{c.tokensPerValidDesign ?? "—"}</TableCell>
                       </TableRow>
                     );
                   })}
                   <TableRow>
                     <TableCell className="font-medium">{bench.configs.C.label}</TableCell>
-                    <TableCell colSpan={7} className="text-muted-foreground italic">
+                    <TableCell colSpan={9} className="text-muted-foreground italic">
                       {bench.configs.C.note}
                     </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
 
-              <div className="h-64 w-full">
+              {bench.comparisonDesignsShared && <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -316,7 +364,7 @@ export default function LabPage() {
                     <Bar dataKey="B" name="B: with lessons" fill="var(--chart-1)" />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              </div>}
             </div>
           )}
         </CardContent>

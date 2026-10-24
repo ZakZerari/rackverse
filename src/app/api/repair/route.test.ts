@@ -37,4 +37,15 @@ describe("rack-scoped repair route", () => {
       initialHardCount: 1, finalHardCount: 0, acceptedPatch: true,
       repairRounds: 1, firstRoundPassed: true, durationMs: expect.any(Number) }));
   });
+
+  it("counts an agent failure as a failed first-round repair with measured duration", async () => {
+    vi.mocked(repairOnly).mockRejectedValue(new Error("Provider unavailable"));
+    const response = await POST(new Request("http://localhost/api/repair", { method: "POST",
+      body: JSON.stringify({ rackId: "rack-a", design: broken, requirements }) }));
+    expect(await response.text()).toContain("Provider unavailable");
+    expect(recordRackRun).toHaveBeenCalledWith(expect.objectContaining({
+      rackId: "rack-a", kind: "repair", status: "error", initialHardCount: 1,
+      firstRoundPassed: false, durationMs: expect.any(Number),
+    }));
+  });
 });

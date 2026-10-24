@@ -82,7 +82,8 @@ export async function POST(request: Request) {
         });
       } catch (err) {
         if (rackId && runId) recordRackRun({ rackId, runId, kind: "repair", timestamp: new Date().toISOString(),
-          status: "error", durationMs: Date.now() - startedAt });
+          status: "error", initialHardCount: hardViolations(validateDesign(design, requirements)).length,
+          firstRoundPassed: false, durationMs: Date.now() - startedAt });
         send({ type: "run:error", error: err instanceof Error ? err.message : String(err) });
       } finally {
         closed = true;

@@ -1,5 +1,6 @@
 import { CheckCircle2, CircleHelp, Cpu, XCircle } from "lucide-react";
 import type { GatewayMetrics } from "@/lib/gatewayMetrics";
+import type { MubitConsoleSnapshot } from "@/lib/mubitConsoleSnapshot";
 import type { RackModelMetrics } from "@/lib/rackRuns";
 
 const comparisonGuide = "https://docs.mubit.ai/guides/first-adapter";
@@ -12,10 +13,11 @@ function rate(part: number, whole: number): number {
   return whole ? Math.round((part / whole) * 100) : 0;
 }
 
-export function MubitPerformance({ gateway, verifiedRuns, totalRuns }: {
+export function MubitPerformance({ gateway, verifiedRuns, totalRuns, snapshot }: {
   gateway: GatewayMetrics | null;
   verifiedRuns: number;
   totalRuns: number;
+  snapshot?: MubitConsoleSnapshot | null;
 }) {
   const calls = gateway?.totalCalls ?? 0;
   const valid = gateway?.successfulCalls ?? 0;
@@ -50,17 +52,21 @@ export function MubitPerformance({ gateway, verifiedRuns, totalRuns }: {
             <td className="px-4 py-3 text-muted-foreground sm:px-5">{gateway?.confirmedResponses ? `${gateway.confirmedResponses} gateway IDs` : "No response IDs yet"}</td>
           </tr>
           <tr className="bg-panel/35">
-            <th scope="row" className="px-4 py-3 font-medium sm:px-5"><span className="block">Mubit adapter</span><span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">Try models comparison</span></th>
+            <th scope="row" className="px-4 py-3 font-medium sm:px-5"><span className="block">Mubit adapter</span><span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">{snapshot ? `${snapshot.adapter.version} · ${snapshot.adapter.status}` : "Try models comparison"}</span></th>
             <td className="px-3 py-3 text-muted-foreground">—</td>
             <td className="px-3 py-3 text-muted-foreground">—</td>
             <td className="px-3 py-3 text-muted-foreground">—</td>
             <td className="px-3 py-3 text-muted-foreground">—</td>
-            <td className="px-4 py-3 sm:px-5"><a href={comparisonGuide} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Compare in Mubit ↗</a></td>
+            <td className="px-4 py-3 sm:px-5">{snapshot ? <>
+              <span className="block">{snapshot.adapter.qualityPct}% quality on {snapshot.adapter.testCases} cases · target {snapshot.adapter.targetPct}%</span>
+              <span className="block text-[10px] text-muted-foreground">{snapshot.liveTasks} live tasks · snapshot {new Date(snapshot.capturedAt).toLocaleDateString()}</span>
+              <a href={snapshot.consoleUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Open Mubit ↗</a>
+            </> : <a href={comparisonGuide} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Compare in Mubit ↗</a>}</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p className="border-t border-border px-4 py-3 text-[10px] leading-4 text-muted-foreground sm:px-5">Valid replies pass the response schema. Verified rack runs finish with zero hard design issues. The app&apos;s calls use the provider route; adapter results are available in Mubit&apos;s console.</p>
+    <p className="border-t border-border px-4 py-3 text-[10px] leading-4 text-muted-foreground sm:px-5">Valid replies pass the response schema. Verified rack runs finish with zero hard design issues. Provider calls and the dated Mubit console snapshot are separate evidence; no adapter result is presented as a live repair measurement.</p>
   </section>;
 }
 

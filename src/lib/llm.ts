@@ -129,8 +129,30 @@ export function status(err: unknown): number | undefined {
   return (err as { status?: number } | null)?.status;
 }
 
+/**
+ * A 429 for the per-DAY quota rather than the per-minute one.
+ *
+ * Gemini's free tier caps generate-content at 500 requests per day per model
+ * on top of the 15/min limit, and both arrive as the same status code. The
+ * daily one is not worth waiting out — its own retry hint is hours away — so
+ * it must not count as transient, or a call burns its whole retry budget
+ * sleeping against a wall. Matched on Google's metric name and wording.
+ */
+export function isDailyQuotaError(err: unknown): boolean {
+  // Walks `cause`: by the time a caller sees this, `complete()` has already
+  // wrapped the provider error in a user-facing one, and the sentence that
+  // identifies the daily cap only exists on the original underneath.
+  for (let current: unknown = err, depth = 0; current && depth < 5; depth++) {
+    const message = current instanceof Error ? current.message : String(current);
+    if (/requests per day|per day limit|_free_tier_requests|PerDay/i.test(message)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export function isTransientError(err: unknown): boolean {
   if ((err as { headers?: Headers } | null)?.headers?.get?.("x-should-retry") === "false") return false;
+  if (isDailyQuotaError(err)) return false;
   const code = status(err);
   if (typeof code === "number") return code === 408 || code === 409 || code === 429 || code >= 500;
   const message = err instanceof Error ? err.message : String(err);
@@ -194,6 +216,7 @@ export function retryAfterMs(err: unknown): number | null {
 export function userFacingModelError(err: unknown): string {
   const code = status(err);
   if (code === 503 || code === 502 || code === 504) return "The model service is temporarily busy. Please try again in a moment.";
+  if (isDailyQuotaError(err)) return "The provider's daily request quota is used up. It resets at midnight Pacific.";
   if (code === 429) return "The model request limit was reached. Please try again shortly.";
   return err instanceof Error ? err.message : String(err);
 }

@@ -60,6 +60,7 @@ export interface RackModelMetrics {
   firstRoundPassRatePct: number | null;
   averageRepairRounds: number | null;
   averageRepairDurationMs: number | null;
+  providerListCostPerValidatedRepairUsd: number | null;
 }
 
 export function rackMetrics(ids: string[], calls: CallLogEntry[], runs: RackRunRecord[]): Record<string, RackModelMetrics> {
@@ -72,9 +73,18 @@ export function rackMetrics(ids: string[], calls: CallLogEntry[], runs: RackRunR
     const recentRuns = [...ownRuns].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     const agents: Record<string, number> = {};
     for (const call of ownCalls) agents[call.agent] = (agents[call.agent] ?? 0) + 1;
-    const measuredRepairs = ownRuns.filter((run) => run.kind === "repair" && run.status === "completed" &&
-      run.initialHardCount !== undefined && run.initialHardCount > 0 && run.repairRounds !== undefined);
-    const timedRepairs = measuredRepairs.filter((run) => run.durationMs !== undefined);
+    const eligibleRepairs = ownRuns.filter((run) => run.kind === "repair" &&
+      run.initialHardCount !== undefined && run.initialHardCount > 0);
+    const measuredRepairs = eligibleRepairs.filter((run) => run.status === "completed" && run.repairRounds !== undefined);
+    const timedRepairs = eligibleRepairs.filter((run) => run.durationMs !== undefined);
+    const validatedRepairs = measuredRepairs.filter((run) => run.finalHardCount === 0);
+    // Paid-tier Gemini 3.5 Flash-Lite text list price, USD per 1M tokens.
+    // This is a provider estimate, not a Mubit invoice or adapter price.
+    const pricedRepairs = eligibleRepairs.map((run) => ownCalls.filter((call) => call.runId === run.runId))
+      .filter((runCalls) => runCalls.length > 0 && runCalls.every((call) =>
+        call.model === "gemini-3.5-flash-lite" && call.promptTokens !== undefined && call.completionTokens !== undefined));
+    const pricedCost = pricedRepairs.reduce((total, runCalls) => total + runCalls.reduce((sum, call) =>
+      sum + ((call.promptTokens ?? 0) * 0.3 + (call.completionTokens ?? 0) * 2.5) / 1_000_000, 0), 0);
     result[id] = {
       calls: ownCalls.length,
       successfulCalls: successful.length,
@@ -87,13 +97,15 @@ export function rackMetrics(ids: string[], calls: CallLogEntry[], runs: RackRunR
       verifiedRuns: ownRuns.filter((run) => run.status === "completed" && run.finalHardCount === 0).length,
       lastRun: recentRuns[0] ?? null,
       agents,
-      repairRuns: measuredRepairs.length,
-      firstRoundPassRatePct: measuredRepairs.length
-        ? Math.round(100 * measuredRepairs.filter((run) => run.firstRoundPassed).length / measuredRepairs.length) : null,
+      repairRuns: eligibleRepairs.length,
+      firstRoundPassRatePct: eligibleRepairs.length
+        ? Math.round(100 * eligibleRepairs.filter((run) => run.firstRoundPassed).length / eligibleRepairs.length) : null,
       averageRepairRounds: measuredRepairs.length
         ? Math.round(10 * measuredRepairs.reduce((total, run) => total + (run.repairRounds ?? 0), 0) / measuredRepairs.length) / 10 : null,
       averageRepairDurationMs: timedRepairs.length
         ? Math.round(timedRepairs.reduce((total, run) => total + (run.durationMs ?? 0), 0) / timedRepairs.length) : null,
+      providerListCostPerValidatedRepairUsd: pricedRepairs.length === eligibleRepairs.length && validatedRepairs.length > 0
+        ? Math.round(pricedCost / validatedRepairs.length * 1_000_000) / 1_000_000 : null,
     };
   }
   return result;

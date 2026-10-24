@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-10-24T21:56:08.000Z",
+  "source": "User-provided Mubit Tasks and Adapters console text",
+  "consoleUrl": "https://app.mubit.ai/console/projects/ws-cf5226d13f9ad7fe/playground",
+  "tasksTotal": 26,
+  "liveTasks": 0,
+  "learningTasks": 26,
+  "tasks": [
+    { "name": "RepairAgent part of server 3", "status": "Collecting examples", "calls7d": 135, "kept": null, "needed": 25 },
+    { "name": "RackArchitect part of server 7", "status": "Collecting examples", "calls7d": 119, "kept": 24, "needed": 25 },
+    { "name": "RackArchitect part of server 8", "status": "Reviewing examples", "calls7d": 66, "kept": 1, "needed": 25 },
+    { "name": "RepairAgent part of server 4", "status": "Reviewing examples", "calls7d": 73, "kept": 0, "needed": 25 },
+    { "name": "RequirementsAgent part of server 3", "status": "Reviewing examples", "calls7d": 40, "kept": 1, "needed": 25 },
+    { "name": "RackEditor part of server", "status": "Reviewing examples", "calls7d": 36, "kept": 0, "needed": 25 },
+    { "name": "RequirementsAgent part of server 2", "status": "Collecting examples", "calls7d": 21, "kept": 21, "needed": 25 }
+  ],
+  "adapter": {
+    "task": "RepairAgent part of server 3",
+    "baseModel": "Qwen3-4B-Instruct-2507",
+    "version": "v1",
+    "status": "Below target",
+    "qualityPct": 60,
+    "targetPct": 85,
+    "testCases": 15,
+    "requestsServed": null,
+    "latencyMs": null,
+    "tokenCost": null
+  }
+}

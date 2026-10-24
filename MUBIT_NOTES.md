@@ -131,7 +131,7 @@ Conversational editing forced one more identity change. Taken deliberately and a
 
 Cost: four tasks restart from zero kept examples. That was already true of the three — the console's 20 fragments are unrecoverable either way — so the only question was whether to pay it now or later, and later is strictly worse.
 
-**Not claimed:** none of this has been observed accumulating in the console. The claim is "identity is frozen and pinned", not "the adapters are training".
+**Console snapshot supplied October 24:** 26 tasks, all in learning, none live. `RackArchitect part of server 7` showed 24 of 25 examples. `RepairAgent part of server 3` had a Qwen3-4B-Instruct-2507 v1 graded below target: 60% match on 15 test cases versus 85% required. That is evidence that training occurred, but not that a usable adapter passed or served requests. The snapshot is stored in `data/mubit-console-snapshot.json`; current app calls still need to be mapped to console tasks by Mubit, since the local task hash is not a Mubit task ID.
 
 ### Keeping more examples
 
@@ -154,6 +154,65 @@ That last one was actionable, and measuring the actual prompt composition found 
 The catalog was inlined as JSON; it's now a pipe-delimited table. Lessons were sent as full records — verbatim context blob plus prose — and were quietly the *largest* single chunk, growing with the store (41 lessons at the time of measuring). They're now rendered as `violation codes => ops that fixed it`, which is both 5.5× smaller and a clearer signal. Measured live: RepairAgent prompts went 3,009 → 2,559 tokens and no longer grow as lessons accumulate.
 
 **Still unverified** (not in the docs, flagged rather than guessed): whether streaming suppresses keeping, whether failed/retried calls are excluded, and whether near-identical requests are deduped. If the keep rate stays low with clean tasks, streaming is the first thing to test — it's a one-line switch in `src/lib/llm.ts`.
+
+## The trainer job
+
+`npm run train-adapters` fills every agent task past the training threshold.
+`--dry-run` shows the plan, `--goal N` moves the target, `--agent X` narrows it.
+
+What the docs pinned down, and what each fact changed:
+
+| Documented | Consequence for the job |
+| --- | --- |
+| "By default, a task first trains at 25 kept examples; the count your console shows is the source of truth." | Goal is 34 recorded calls, not 25 — "Not every call becomes a kept example", and a task also needs spares to hold back as test cases. |
+| Every failure state recovers with "Send more calls with new messages." | The corpus generates **distinct** briefs. Re-sending one prompt is worthless. |
+| "Gemini \| None: Mubit uses the start of the conversation" (session field table) | We cannot set a session on Gemini, so the session comes from the opening message. Briefs must differ in WORDS — Mubit's grouping already ignores "numbers, dates, times and IDs", so two briefs differing only in a server count are one brief. |
+| "Mubit sets a task's test cases aside by session." | Follow-up turns are spread over several base racks. Twenty edits against one rack would be twenty near-identical openings, i.e. one session. |
+| A task is calls sharing "instructions; tools; tool choice; output format; model". | Scenario text rides in the user message and touches none of them, so N racks collapse to 4 tasks — one per agent. `corpus.test.ts` pins this. |
+| "There is no Mubit model ID: you can't send a call to an adapter by naming it as the model." | **Nothing in our code can route to an adapter.** The app keeps sending `gemini-3.5-flash-lite`; enabling an adapter is a console action. "Use the adapter" is not a code change. |
+
+### One task per agent, measured
+
+Task identity was frozen on 2026-10-24 at 20:26. Every call since, across more
+than a hundred different racks, lands on exactly four task keys:
+
+| Agent | Local task key | Recorded calls |
+| --- | --- | --- |
+| RackArchitect | `68e4bc4653f462fd` | 115 |
+| RepairAgent | `7378aa0fc57c7b55` | 91 |
+| RequirementsAgent | `2bb2d335bb93ae7b` | 15 |
+| RackEditor | `51280a9ab53334e6` | 14 |
+
+Four agents, four tasks, any number of racks. That is the generalisation
+holding, and it is measured from `data/calls.jsonl`, not assumed.
+
+**These are calls we sent, not kept examples.** Mubit decides what it keeps and
+the console count is the source of truth; this table is only a local proxy
+that tells the trainer where to spend its next calls.
+
+## The daily quota, which is the real ceiling
+
+The 15 req/min cap has a second half nobody mentions until you hit it:
+
+```
+Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests,
+limit: 500, model: gemini-3.5-flash-lite,
+description: Generate content requests per day limit exceeded on Free Tier.
+Please retry in 9h3m36s.
+```
+
+**500 generate-content requests per day per model**, and both caps arrive as a
+429 — only the body tells them apart. That matters twice over:
+
+- The per-minute 429 is worth waiting out; this one is not, and treating it as
+  transient makes every call burn its retry budget sleeping against a wall.
+  `isDailyQuotaError()` separates them and `isTransientError()` excludes it.
+- A training run is bounded at roughly 500 calls a day on the free tier, which
+  is ~250 turns. Enough to fill four tasks from zero, but not twice in a day.
+
+The trainer stops on the first daily-quota error instead of failing every
+remaining turn against the same wall, and resumes from what is already
+recorded when re-run.
 
 ## Model choice — this was the whole ballgame
 

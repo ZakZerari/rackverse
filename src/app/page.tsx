@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { MubitPerformance, RackMubitSummary } from "@/components/dashboard/MubitPerformance";
 import { useFleetStore, type RackRecord } from "@/lib/fleet";
 import type { GatewayMetrics } from "@/lib/gatewayMetrics";
+import type { MubitConsoleSnapshot } from "@/lib/mubitConsoleSnapshot";
 import { designTotals } from "@/lib/summary";
 import { validateDesign } from "@/lib/validate";
 import type { RackModelMetrics } from "@/lib/rackRuns";
@@ -93,12 +94,17 @@ export default function DashboardPage() {
   const [name, setName] = useState("");
   const [loadedMetrics, setLoadedMetrics] = useState<{ key: string; metrics: Record<string, RackModelMetrics> } | null>(null);
   const [gateway, setGateway] = useState<GatewayMetrics | null>(null);
+  const [mubitSnapshot, setMubitSnapshot] = useState<MubitConsoleSnapshot | null>(null);
   const ids = racks.map((rack) => rack.id).join(",");
 
   useEffect(() => { useFleetStore.getState().hydrate(); }, []);
   useEffect(() => {
     fetch("/api/calls", { cache: "no-store" }).then((response) => response.json())
       .then((data) => setGateway(data)).catch(() => { /* The rack dashboard remains useful offline. */ });
+    fetch("/api/mubit-console-snapshot", { cache: "no-store" }).then((response) => response.json())
+      .then((body: { available?: boolean; snapshot?: MubitConsoleSnapshot }) =>
+        setMubitSnapshot(body.available ? body.snapshot ?? null : null))
+      .catch(() => {});
   }, []);
   useEffect(() => {
     if (!hydrated || !ids) return;
@@ -178,7 +184,7 @@ export default function DashboardPage() {
 
       <p className="text-[11px] text-muted-foreground">Engineering checks use saved catalog specs and estimates, not live rack sensor data.</p>
 
-      <MubitPerformance gateway={gateway} verifiedRuns={verifiedRuns} totalRuns={totalRuns} />
+      <MubitPerformance gateway={gateway} verifiedRuns={verifiedRuns} totalRuns={totalRuns} snapshot={mubitSnapshot} />
     </div>
   </main>;
 }
