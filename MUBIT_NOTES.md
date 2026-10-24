@@ -59,13 +59,35 @@ Structured output mode that worked: json_schema
 
 So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` no longer needs to fall back to `json_object` for Gemini. (The call to Mubit's console to visually confirm the call landed there is still something a human needs to do — not something I can check myself.)
 
-## Latency (confirmed live — plan around this)
+## Model choice — this was the whole ballgame
 
-Every call through this Mubit→Gemini route has been slow and variable in this environment: individual `RackArchitect`/`RepairAgent` calls ranged **~19s to ~163s**, with most landing in the 100-160s range once the prompt includes the full catalog. Concretely:
+We originally ran on `gemini-3.8-flash` and **every** call took 19-163s. A 44-token prompt returning 12 tokens took 137s. Latency didn't scale with token count, which ruled out generation being the bottleneck.
 
-- A 2-scenario `train-traffic` run (1 Architect + 1 Repair call per scenario, concurrency 4) took **4.9 minutes**.
-- A 1-train/1-held-out `bench` smoke run (3 scenarios total) took several minutes on its own.
+Diagnosis, in order:
 
-This has real consequences we've designed around rather than discovered too late:
-- **`npm run train-traffic -- --n 60`** (the default) would realistically take **over an hour**, even at concurrency 4 — each scenario can involve two *sequential* slow calls (Architect, then a deliberate break+Repair), and batches are bounded by the slowest member. Both `train-traffic.ts` and `bench.ts` accept flags (`--n`, `--train-n`/`--held-out-n`) specifically so a small sanity run doesn't cost an hour. The full-scale runs are meant to be kicked off deliberately (e.g. live during the Mubit console portion of the demo), not fired automatically.
-- **The live demo** should default to `DEMO_SEED` (cached fixture replay) for the reliable path, with a real live call as the "look, it's actually happening" moment — not the entire 3-minute budget spent waiting on sequential Gemini calls.
+1. **Not thinking.** `reasoning_effort: "none"` only halved a trivial call (108s → 53s), and `"low"` made no difference (115s). Gemini 3.x does have thinking on by default (3.8-flash defaults to `medium` and *rejects* `minimal`), but that wasn't the main cost.
+2. **Not the schema or prompt size.** A plain "reply with ok" — no `response_format`, 44 tokens — still took 108s.
+3. **Not the Mubit proxy.** This is the decisive test: probing eight models **concurrently**, through the same proxy, on the same key, in the same second:
+
+   | model | latency |
+   |---|---|
+   | `gemini-3.5-flash-lite` | **1.1s** |
+   | `gemini-flash-lite-latest` | 1.1s |
+   | `gemini-3.1-flash-lite` | 1.3s |
+   | `gemini-3.6-flash` | 1.9s |
+   | `gemini-3.5-flash` | 2.6s |
+   | `gemini-3.8-flash` | **105.1s** |
+
+   Five models answered in ~1-3s while 3.8-flash took 105s. **`gemini-3.8-flash` is simply throttled to uselessness on this tier** — it's the newest/most contended model. We also saw bare `429 quota exceeded` and `503 high demand` from the larger models.
+
+**Decision: `MUBIT_MODEL=gemini-3.5-flash-lite`.** On the *real* Architect workload (full catalog, real schema, 3 seeds) it averaged **2.2s**, parsed 3/3, and produced designs the deterministic validator passed 3/3 first try — so it's both the fastest *and* the most accurate option here. `npm run pick-model` re-runs that comparison if latency regresses mid-event.
+
+Measured end-to-end after the switch: **prompt → rendered valid rack in ~4-6s** (was ~143s), and **Break → Repair → Verify in ~2-3s** (was ~163s).
+
+### A real bug this uncovered
+
+Gemini's structured-output schema subset does **not** include `oneOf`, and Zod ≥4.1.13 compiles `z.discriminatedUnion` to exactly that — so our `PatchSchema` (the RepairAgent's output contract) was being sent in a form Gemini can't constrain against. `toGeminiJsonSchema()` in `src/lib/llm.ts` now rewrites `oneOf`→`anyOf` and `const`→single-value `enum`, with tests in `src/lib/llm.test.ts` asserting nothing unsupported survives.
+
+### Consequences for the batch scripts
+
+`train-traffic` and `bench` were written when calls cost ~150s, so they take `--n` / `--train-n` / `--held-out-n` flags to keep sanity runs cheap. At ~2s/call those full runs are now genuinely practical rather than hour-long commitments.
