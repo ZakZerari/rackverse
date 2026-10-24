@@ -1,69 +1,111 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { getCatalogItem } from "@/data/catalog";
+import { useRackStore } from "@/lib/store";
+import { CatalogPanel } from "@/components/studio/CatalogPanel";
+import { RackElevation } from "@/components/studio/RackElevation";
+import { CopilotPanel } from "@/components/studio/CopilotPanel";
+import { BottomPanel } from "@/components/studio/BottomPanel";
+import { VersionHistoryPanel } from "@/components/studio/VersionHistoryPanel";
+import { Badge } from "@/components/ui/badge";
+
+export default function StudioPage() {
+  const { face, addPlacement, movePlacement, selectedPlacementId, removePlacement, revalidate } =
+    useRackStore();
+  const [draggingLabel, setDraggingLabel] = useState<string | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  useEffect(() => {
+    revalidate();
+  }, [revalidate]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedPlacementId) {
+        const target = e.target as HTMLElement | null;
+        if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+        removePlacement(selectedPlacementId);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedPlacementId, removePlacement]);
+
+  function handleDragStart(event: DragStartEvent) {
+    const data = event.active.data.current as
+      | { type: "catalog"; catalogId: string }
+      | { type: "placement"; placementId: string }
+      | undefined;
+    if (!data) return;
+    if (data.type === "catalog") {
+      setDraggingLabel(getCatalogItem(data.catalogId)?.name ?? null);
+    } else if (data.type === "placement") {
+      const design = useRackStore.getState().design;
+      const placement = design.placements.find((p) => p.id === data.placementId);
+      setDraggingLabel(placement ? getCatalogItem(placement.catalogId)?.name ?? null : null);
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggingLabel(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeData = active.data.current as
+      | { type: "catalog"; catalogId: string }
+      | { type: "placement"; placementId: string }
+      | undefined;
+    const overData = over.data.current as { type: "slot"; startU: number } | undefined;
+    if (!activeData || !overData || overData.type !== "slot") return;
+
+    if (activeData.type === "catalog") {
+      addPlacement(activeData.catalogId, overData.startU, face);
+    } else if (activeData.type === "placement") {
+      movePlacement(activeData.placementId, overData.startU, face);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <DndContext id="studio-dnd" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="flex h-screen flex-col">
+        <header className="flex items-center justify-between border-b border-border px-4 py-2">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold">RackVerse</h1>
+            <Badge variant="outline">Studio</Badge>
+          </div>
+          <VersionHistoryPanel />
+        </header>
+        <div className="grid flex-1 grid-cols-[240px_1fr_280px] overflow-hidden">
+          <CatalogPanel />
+          <div className="flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+              <RackElevation />
+            </div>
+            <div className="h-56 shrink-0">
+              <BottomPanel />
+            </div>
+          </div>
+          <CopilotPanel />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+      <DragOverlay>
+        {draggingLabel && (
+          <div className="rounded-md border border-primary bg-card px-2 py-1 text-xs shadow-lg">
+            {draggingLabel}
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
   );
 }
