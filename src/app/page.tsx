@@ -17,6 +17,7 @@ import { RackElevation } from "@/components/studio/RackElevation";
 import { CopilotPanel } from "@/components/studio/CopilotPanel";
 import { BottomPanel } from "@/components/studio/BottomPanel";
 import { VersionHistoryPanel } from "@/components/studio/VersionHistoryPanel";
+import { Toolbar } from "@/components/studio/Toolbar";
 import { Badge } from "@/components/ui/badge";
 
 export default function StudioPage() {
@@ -84,7 +85,10 @@ export default function StudioPage() {
             <h1 className="text-sm font-bold">RackVerse</h1>
             <Badge variant="outline">Studio</Badge>
           </div>
-          <VersionHistoryPanel />
+          <div className="flex items-center gap-2">
+            <Toolbar />
+            <VersionHistoryPanel />
+          </div>
         </header>
         <div className="grid flex-1 grid-cols-[240px_1fr_280px] overflow-hidden">
           <CatalogPanel />

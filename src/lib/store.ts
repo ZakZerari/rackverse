@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { applyPatch } from "@/lib/patch";
-import type { TraceStep } from "@/lib/orchestrate";
+import type { RepairOnlyResult, TraceStep } from "@/lib/orchestrate";
+import { breakDesign } from "@/lib/scenarios";
 import type { Design, Face, Patch, Requirements, Violation } from "@/lib/types";
 import { validateDesign } from "@/lib/validate";
 
@@ -54,6 +55,12 @@ interface RackStore {
   setDesign: (design: Design) => void; // used by the orchestrator once agents exist
   setRequirements: (requirements: Requirements) => void;
   restoreVersion: (version: number) => void;
+
+  breakIt: () => void;
+  pendingRepair: RepairOnlyResult | null;
+  setPendingRepair: (result: RepairOnlyResult | null) => void;
+  acceptPendingRepair: () => void;
+  rejectPendingRepair: () => void;
 }
 
 export const useRackStore = create<RackStore>((set, get) => ({
@@ -139,5 +146,43 @@ export const useRackStore = create<RackStore>((set, get) => ({
     const restored: Design = { ...snapshot, version: design.version + 1 };
     set({ design: restored, versions: [...versions, restored] });
     get().revalidate();
+  },
+
+  pendingRepair: null,
+  setPendingRepair: (result) => set({ pendingRepair: result }),
+
+  breakIt: () => {
+    const { design, versions } = get();
+    const result = breakDesign(design);
+    set({ design: result.design, versions: [...versions, result.design] });
+    get().appendTrace([
+      { id: `break-${Date.now()}`, label: "Break it", detail: result.description, ok: false },
+    ]);
+    get().revalidate();
+  },
+
+  acceptPendingRepair: () => {
+    const { pendingRepair, design, versions } = get();
+    if (!pendingRepair) return;
+    if (pendingRepair.design !== design) {
+      set({ design: pendingRepair.design, versions: [...versions, pendingRepair.design] });
+    }
+    get().appendTrace(pendingRepair.trace);
+    set({ pendingRepair: null });
+    get().revalidate();
+  },
+
+  rejectPendingRepair: () => {
+    const { pendingRepair } = get();
+    if (!pendingRepair) return;
+    get().appendTrace([
+      {
+        id: `reject-${Date.now()}`,
+        label: "Auto-repair",
+        detail: "Discarded by user — design left unchanged.",
+        ok: false,
+      },
+    ]);
+    set({ pendingRepair: null });
   },
 }));
