@@ -32,6 +32,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# generated runtime data (fixtures are committed on purpose)
+/data/calls.jsonl
+/data/lessons.json
+/data/versions.json
+/data/bench-results.json
 
 # vercel
 .vercel
