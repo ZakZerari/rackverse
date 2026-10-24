@@ -206,12 +206,15 @@ export function RackElevation() {
     return Math.max(max, p.startU + item.heightU - 1);
   }, 0);
 
+  // Keyed on the occupied extent, not the version: moving a device inside the
+  // existing range shouldn't yank the viewport mid-drag. Instant, because a
+  // smooth scroll gets interrupted by the re-render that follows a run.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || topmostUsedU === 0) return;
     const topOfEquipmentPx = (design.rack.heightU - topmostUsedU) * U_PX;
-    el.scrollTo({ top: Math.max(0, topOfEquipmentPx - U_PX * 2), behavior: "smooth" });
-  }, [design.version, topmostUsedU, design.rack.heightU]);
+    el.scrollTop = Math.max(0, topOfEquipmentPx - U_PX * 2);
+  }, [topmostUsedU, design.rack.heightU]);
 
   return (
     <section className="flex min-h-0 flex-col">

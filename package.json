@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "check:llm": "tsx scripts/check-llm.ts",
     "smoke-mubit": "tsx scripts/smoke-mubit.ts",
+    "pick-model": "tsx scripts/pick-model.ts",
     "train-traffic": "tsx scripts/train-traffic.ts",
     "bench": "tsx scripts/bench.ts"
   },
