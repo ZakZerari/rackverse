@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { removeEquipment, resetEquipment, updateRack, upsertEquipment } from "@/lib/configuration";
 import {
   extractRationale,
   newTurn,
@@ -10,18 +11,18 @@ import type { RunEvent } from "@/lib/events";
 import type { RepairOnlyResult } from "@/lib/orchestrate";
 import { applyPatch } from "@/lib/patch";
 import { breakDesign } from "@/lib/scenarios";
-import type { Design, Face, Patch, Requirements, Violation } from "@/lib/types";
+import type { CatalogItem, Design, Face, Patch, Rack, Requirements, Violation } from "@/lib/types";
 import { validateDesign } from "@/lib/validate";
 
 export function defaultRequirements(): Requirements {
   return { rackHeightU: 42, powerBudgetW: 10000, redundantPower: false, required: [] };
 }
 
-export function defaultDesign(): Design {
+export function defaultDesign(id = "rack-1", name = "Untitled Rack"): Design {
   return {
     rack: {
-      id: "rack-1",
-      name: "Untitled Rack",
+      id,
+      name,
       heightU: 42,
       mountingDepthMm: 1000,
       maxLoadKg: 500,
@@ -115,6 +116,11 @@ interface RackStore {
   setDesign: (design: Design) => void;
   setRequirements: (requirements: Requirements) => void;
   restoreVersion: (version: number) => void;
+  updateRackSettings: (settings: Omit<Rack, "id">) => void;
+  saveEquipment: (item: CatalogItem) => void;
+  deleteEquipment: (id: string) => void;
+  resetEquipment: (id: string) => void;
+  loadSnapshot: (snapshot: { design: Design; requirements: Requirements; versions: Design[]; turns: Turn[] }) => void;
 
   breakIt: () => void;
   pendingRepair: RepairOnlyResult | null;
@@ -213,6 +219,20 @@ export const useRackStore = create<RackStore>((set, get) => ({
         set({ runningAgent: null });
         break;
 
+      case "requirements:update":
+        // Land the brief on the Requirements step itself. Its schema has no
+        // `rationale`, so the row would otherwise just say "Responded.".
+        set({ requirements: event.requirements });
+        patchCurrentTurn((turn) => {
+          const index = turn.items.findLastIndex((i) => i.kind === "agent" && i.agent === "RequirementsAgent");
+          if (index === -1) return turn;
+          const items = [...turn.items];
+          items[index] = { ...(items[index] as TimelineItem & { kind: "agent" }), rationale: event.summary };
+          return { ...turn, items };
+        });
+        get().revalidate();
+        break;
+
       case "validator:result":
         addItem({
           kind: "validator",
@@ -242,7 +262,7 @@ export const useRackStore = create<RackStore>((set, get) => ({
         set({
           design: event.design,
           requirements: event.requirements,
-          versions: [event.design],
+          versions: event.mode === "amend" ? [...get().versions, event.design] : [event.design],
           selectedPlacementId: null,
           isRunning: false,
           runningAgent: null,
@@ -339,6 +359,43 @@ export const useRackStore = create<RackStore>((set, get) => ({
     if (!snapshot) return;
     const restored: Design = { ...snapshot, version: design.version + 1 };
     set({ design: restored, versions: [...versions, restored] });
+    get().revalidate();
+  },
+
+  updateRackSettings: (settings) => {
+    const next = updateRack(get().design, settings);
+    set((state) => ({
+      design: next,
+      requirements: { ...state.requirements, rackHeightU: next.rack.heightU, powerBudgetW: next.rack.powerBudgetW },
+      versions: [...state.versions, next],
+    }));
+    get().revalidate();
+  },
+
+  saveEquipment: (item) => {
+    const next = upsertEquipment(get().design, item);
+    set((state) => ({ design: next, versions: [...state.versions, next] }));
+    get().revalidate();
+  },
+
+  deleteEquipment: (id) => {
+    const next = removeEquipment(get().design, id);
+    set((state) => ({ design: next, versions: [...state.versions, next] }));
+    get().revalidate();
+  },
+
+  resetEquipment: (id) => {
+    const next = resetEquipment(get().design, id);
+    set((state) => ({ design: next, versions: [...state.versions, next] }));
+    get().revalidate();
+  },
+
+  loadSnapshot: (snapshot) => {
+    set({
+      design: snapshot.design, requirements: snapshot.requirements, versions: snapshot.versions,
+      turns: snapshot.turns, selectedPlacementId: null, face: "front",
+      isRunning: false, runningAgent: null, pendingRepair: null,
+    });
     get().revalidate();
   },
 

@@ -21,6 +21,10 @@ npm run check:llm            # enforces that only src/lib/llm.ts talks to an LLM
 npm run dev                  # http://localhost:3000
 ```
 
+The main page is a fleet dashboard: create racks, review each rack's engineering checks and capacity, and open one to edit it. It also shows rack-scoped Mubit call counts, parsed replies, latency and deterministically verified run outcomes when calls have been recorded. Rack designs, conversations and version history are saved in browser storage; the earlier single-rack workspace migrates automatically. Mubit evidence is stored in this server's local JSONL logs, so it is separate from browser-saved designs.
+
+In the Studio, **Rack settings** changes height, mounting depth, load rating and power budget. **Add equipment** creates a device with editable type, price, dimensions, weight, power, supply capacity, outlets, PSUs and network ports. Built-in devices can be edited and reset to their source specs. Edits update the checks, totals, views and AI catalog. On smaller screens, use the Equipment, Rack and Copilot tabs.
+
 ## Architecture
 
 ```
@@ -35,11 +39,14 @@ prompt ─▶ RequirementsAgent ─▶ RackArchitect ─▶ validate() ─┬─
 - `src/lib/types.ts` — the shared `Design` model used by the editor, validator, agents, and exporter.
 - `src/data/catalog.ts` — **generated**, 39 real devices (see Equipment data). Agents reference `catalogId`s only; they can never invent a device's specs.
 - `src/lib/validate.ts` — the deterministic validator. Pure functions, heavily unit-tested. Source of truth for whether a design is valid — never the model.
-- `src/lib/patch.ts` / `src/lib/verify.ts` — applies an AI-proposed patch to a *copy*, then deterministically accepts or rejects it.
+- `src/lib/patch.ts` / `src/lib/verify.ts` — apply an AI-proposed patch to a *copy*, then deterministically accept or reject it.
+- `src/lib/configuration.ts` / `src/lib/catalog.ts` — validate rack and equipment edits and resolve built-in versus user-edited specifications.
 - `src/lib/llm.ts` — the **only** module that calls an LLM. Routes every call through Mubit, streams responses, and normalises our Zod schemas into Gemini's supported JSON-schema subset.
-- `src/lib/agents/*` — RequirementsAgent, RackArchitect, RepairAgent. Each has one constant system prompt, one model, one output format, so Mubit groups each into a stable, trainable task.
-- `src/lib/orchestrate.ts` — the ~120-line async function wiring agents → validator → verifier.
+- `src/lib/agents/*` — RequirementsAgent, RackArchitect, RackEditor and RepairAgent. Each has one constant system prompt, one model and one output format.
+- `src/lib/orchestrate.ts` — wires first designs and follow-up edits through agents, validator and verifier.
 - `src/lib/events.ts` — the typed `RunEvent` stream (see below).
+- `src/lib/fleet.ts` — browser-side rack collection, per-rack snapshots, and migration from the original single-rack workspace.
+- `src/lib/rackRuns.ts` — rack-scoped local Mubit call and deterministic outcome summaries for the dashboard.
 
 ### Why there's no agent framework
 
@@ -75,3 +82,9 @@ Prompt → rendered, validated rack in **~4-6s**; Break → Repair → Verify in
 ## Honesty
 
 Local metrics (the benchmark on `/lab`, call logs, lessons learned) are reported as local metrics. Nothing is claimed as a Mubit adapter result unless it's been verified in the Mubit console's "Try models".
+
+The fleet dashboard shows Mubit-routed provider calls, schema-valid replies, call latency, and rack runs that finished with zero hard design issues. New call records capture Mubit's `x-middleware-request-id`, so the dashboard can count gateway-confirmed responses. Existing records without that header still count as local call history. Adapter comparisons are a separate console workflow; the app does not label provider calls as adapter inference.
+
+## Verification
+
+`npm test` covers individual rules, property tests, complete racks, editing, browser storage, orchestration and Mubit task fingerprints. The benchmark uses realistic workload profiles; a reference-build test proves 200 training seeds and 50 held-out seeds admit a rack with no hard violations using real catalog devices. See [TESTING.md](./TESTING.md) for the live Mubit evaluation procedure and metric limits.

@@ -5,6 +5,7 @@ vi.mock("@/lib/llm", () => ({ complete: vi.fn() }));
 
 import { complete } from "@/lib/llm";
 import { RACK_ARCHITECT_SYSTEM, runArchitect } from "@/lib/agents/architect";
+import { RACK_EDITOR_SYSTEM, runRackEditor } from "@/lib/agents/editor";
 import { REPAIR_AGENT_SYSTEM, runRepairAgent } from "@/lib/agents/repair";
 import { REQUIREMENTS_AGENT_SYSTEM, runRequirementsAgent } from "@/lib/agents/requirements";
 
@@ -29,8 +30,8 @@ beforeEach(() => {
 
 describe("each agent's system prompt is a stable, constant string (so Mubit groups it into one task)", () => {
   it("RequirementsAgent sends the exact same system prompt regardless of input", async () => {
-    await runRequirementsAgent("42U rack with 8 servers");
-    await runRequirementsAgent("a tiny edge rack with one switch and a budget of $5k");
+    await runRequirementsAgent({ message: "42U rack with 8 servers", history: [], current: null });
+    await runRequirementsAgent({ message: "a tiny edge rack with one switch and a budget of $5k", history: [], current: null });
 
     const systems = mockComplete.mock.calls.map((call) => call[0].system);
     expect(systems[0]).toBe(REQUIREMENTS_AGENT_SYSTEM);
@@ -61,8 +62,28 @@ describe("each agent's system prompt is a stable, constant string (so Mubit grou
     expect(systems[1]).toBe(REPAIR_AGENT_SYSTEM);
   });
 
-  it("all three agents use distinct system prompts from one another", () => {
-    const unique = new Set([REQUIREMENTS_AGENT_SYSTEM, RACK_ARCHITECT_SYSTEM, REPAIR_AGENT_SYSTEM]);
-    expect(unique.size).toBe(3);
+  it("RackEditor sends a stable prompt while user changes remain in the user message", async () => {
+    await runRackEditor({ request: "add a server", history: [], requirements: requirements(), design: design() });
+    await runRackEditor({ request: "make it cheaper", history: [], requirements: requirements(), design: design() });
+    expect(mockComplete.mock.calls.map(([call]) => call.system)).toEqual([RACK_EDITOR_SYSTEM, RACK_EDITOR_SYSTEM]);
+  });
+
+  it("custom equipment is available to Architect and Repair without changing task instructions", async () => {
+    const customDesign: Design = { ...design(), catalogOverrides: [{
+      id: "custom-1", manufacturer: "Site", name: "Compute Node", category: "server", heightU: 2,
+      depthMm: 700, weightKg: 20, powerW: 500, priceUsd: 4500, fullDepth: true,
+      netPortsNeeded: 2, source: "custom", estimated: [],
+    }] };
+    await runArchitect(requirements(), { catalogDesign: customDesign });
+    await runRepairAgent({ design: customDesign, violations: [], requirements: requirements(), lessons: [] });
+    expect(mockComplete.mock.calls[0][0].user).toContain("custom-1|server");
+    expect(mockComplete.mock.calls[1][0].user).toContain("custom-1|server");
+    expect(mockComplete.mock.calls[0][0].system).toBe(RACK_ARCHITECT_SYSTEM);
+    expect(mockComplete.mock.calls[1][0].system).toBe(REPAIR_AGENT_SYSTEM);
+  });
+
+  it("all four agents use distinct system prompts from one another", () => {
+    const unique = new Set([REQUIREMENTS_AGENT_SYSTEM, RACK_ARCHITECT_SYSTEM, RACK_EDITOR_SYSTEM, REPAIR_AGENT_SYSTEM]);
+    expect(unique.size).toBe(4);
   });
 });

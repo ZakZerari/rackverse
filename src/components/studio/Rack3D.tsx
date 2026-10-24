@@ -4,7 +4,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Edges, OrbitControls } from "@react-three/drei";
 import type { Mesh, PerspectiveCamera } from "three";
-import { getCatalogItem } from "@/data/catalog";
+import { catalogItemFor } from "@/lib/catalog";
 import { useRackStore } from "@/lib/store";
 import type { Category, Design, Placement } from "@/lib/types";
 
@@ -25,18 +25,20 @@ const CATEGORY_COLOR: Record<Category, string> = {
 
 function DeviceBox({
   placement,
+  design,
   rackHeightU,
   violated,
   selected,
   onSelect,
 }: {
   placement: Placement;
+  design: Design;
   rackHeightU: number;
   violated: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
-  const item = getCatalogItem(placement.catalogId);
+  const item = catalogItemFor(design, placement.catalogId);
   const meshRef = useRef<Mesh>(null);
 
   // Violations pulse so a bad device is findable while orbiting.
@@ -170,6 +172,7 @@ function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<strin
           <DeviceBox
             key={p.id}
             placement={p}
+            design={design}
             rackHeightU={heightU}
             violated={violatedIds.has(p.id)}
             selected={selectedPlacementId === p.id}

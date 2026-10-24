@@ -17,7 +17,7 @@ export type EstimatedField = "depthMm" | "weightKg" | "powerW" | "powerCapacityW
 
 export interface CatalogItem {
   id: string;
-  /** Real manufacturer, e.g. "Dell". "Generic" for unbranded panels. */
+  /** Manufacturer or a user-supplied label for custom equipment. */
   manufacturer: string;
   /** Real model name, e.g. "PowerEdge R640". */
   name: string;
@@ -42,10 +42,11 @@ export interface CatalogItem {
   priceUsd: number;
   /**
    * Provenance, because this tool's whole premise is not overclaiming.
-   * `netbox` = geometry/weight/ports came from the CC0 NetBox device-type
-   * library; `estimated` lists the fields we filled in ourselves.
+   * `netbox` = source device from the CC0 NetBox device-type library;
+   * `custom` = user-created device. `estimated` marks fields we estimated or
+   * the user changed from source values.
    */
-  source: "netbox" | "generic";
+  source: "netbox" | "generic" | "custom";
   estimated: EstimatedField[];
 }
 
@@ -71,6 +72,8 @@ export interface Design {
   rack: Rack;
   placements: Placement[];
   version: number;
+  /** Custom devices and per-design overrides of built-in device specs. */
+  catalogOverrides?: CatalogItem[];
 }
 
 export interface Requirements {
@@ -102,6 +105,8 @@ export type ErrorCode =
   | "POWER_HEADROOM_LOW"
   | "PDU_OUTLETS_INSUFFICIENT"
   | "REDUNDANCY_SINGLE_FEED"
+  | "REDUNDANCY_DEVICE_PSU"
+  | "REDUNDANCY_FEED_OUTLETS_INSUFFICIENT"
   | "NETWORK_PORTS_INSUFFICIENT"
   | "BUDGET_EXCEEDED"
   | "REQUIREMENT_MISSING";

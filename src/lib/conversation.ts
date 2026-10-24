@@ -44,7 +44,7 @@ export type TimelineItem =
       tone: "neutral" | "warn";
     };
 
-export type TurnKind = "design" | "repair" | "break";
+export type TurnKind = "design" | "amend" | "repair" | "break";
 
 export interface Turn {
   id: string;

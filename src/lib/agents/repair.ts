@@ -1,4 +1,4 @@
-import { catalogSummary } from "@/data/catalog";
+import { catalogSummaryFor } from "@/lib/catalog";
 import type { AgentCallOptions } from "@/lib/agents/requirements";
 import { complete } from "@/lib/llm";
 import { renderLessonsForPrompt, type Lesson } from "@/lib/lessons";
@@ -17,6 +17,7 @@ Rules:
 - Use ONLY existing placementIds from the given design, or ids from the given catalog table. Never invent either.
 - Prefer the fewest ops that resolve the violations. Don't make unrelated changes.
 - A patch can "add" a new device, "move" or "remove" an existing placement (by placementId), or "replace" a placement's catalogId.
+- For redundant power, every server needs at least 2 PSUs; A and B must each have enough PDU outlets for one connection per dual-PSU server. Replace single-PSU servers or add outlet capacity when those violations appear.
 - U1 is the bottom of the rack. Respect the rack's heightU bounds.
 - If "Verified past fixes" are provided, prefer a similar approach when it fits this case — but adapt it; don't copy an op that references an id that doesn't exist in THIS design.
 
@@ -37,7 +38,7 @@ export async function runRepairAgent(
     design: input.design,
     violations: input.violations.map((v) => ({ code: v.code, message: v.message, placementIds: v.placementIds })),
     requirements: input.requirements,
-    catalog: catalogSummary(),
+    catalog: catalogSummaryFor(input.design),
     verifiedPastFixes: renderLessonsForPrompt(input.lessons),
   });
   return complete({

@@ -37,7 +37,7 @@ yarn-error.log*
 # generated runtime data (fixtures are committed on purpose)
 /data/calls.jsonl
 /data/lessons.json
-/data/versions.json
+/data/rack-runs.jsonl
 /data/bench-results.json
 
 # vercel

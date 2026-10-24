@@ -1,9 +1,11 @@
 import { runArchitect } from "@/lib/agents/architect";
+import { runRackEditor, type RackEditorInput } from "@/lib/agents/editor";
 import { runRepairAgent } from "@/lib/agents/repair";
 import { runRequirementsAgent } from "@/lib/agents/requirements";
 import { noopEmit, type EmitFn } from "@/lib/events";
 import { getRelevantLessons, recordLesson, type Lesson } from "@/lib/lessons";
-import { genPlacementId } from "@/lib/patch";
+import { applyPatch, genPlacementId, patchCoherenceProblems } from "@/lib/patch";
+import { planTurn, summariseRequirements, type HistoryEntry } from "@/lib/turn";
 import type { ArchitectOutputSchema } from "@/lib/schemas";
 import type { Design, Patch, Requirements, Violation } from "@/lib/types";
 import { hardViolations, validateDesign } from "@/lib/validate";
@@ -31,19 +33,24 @@ function traceStep(label: string, detail: string, ok: boolean, hardViolationCoun
 
 function buildDesignFromArchitectOutput(
   output: z.infer<typeof ArchitectOutputSchema>,
-  requirements: Requirements
+  requirements: Requirements,
+  catalogDesign?: Design
 ): Design {
   return {
     rack: {
-      id: "rack-1",
-      name: output.rackName,
+      id: catalogDesign?.rack.id ?? "rack-1",
+      name: catalogDesign?.placements.length === 0 && catalogDesign.rack.name !== "Untitled Rack"
+        ? catalogDesign.rack.name : output.rackName,
       heightU: requirements.rackHeightU,
-      mountingDepthMm: output.mountingDepthMm,
-      maxLoadKg: output.maxLoadKg,
+      mountingDepthMm: catalogDesign?.placements.length === 0 && catalogDesign.rack.mountingDepthMm !== 1000
+        ? catalogDesign.rack.mountingDepthMm : output.mountingDepthMm,
+      maxLoadKg: catalogDesign?.placements.length === 0 && catalogDesign.rack.maxLoadKg !== 500
+        ? catalogDesign.rack.maxLoadKg : output.maxLoadKg,
       powerBudgetW: requirements.powerBudgetW,
     },
     placements: output.placements.map((p) => ({ id: genPlacementId(), ...p })),
     version: 1,
+    catalogOverrides: catalogDesign?.catalogOverrides,
   };
 }
 
@@ -56,6 +63,9 @@ export interface RepairLoopOptions {
    *  live app's lessons. */
   getLessons?: (violations: Violation[]) => Lesson[];
   onLessonLearned?: (violations: Violation[], patch: Patch, improvement: string) => void;
+  currentDesign?: Design;
+  currentRequirements?: Requirements;
+  history?: HistoryEntry[];
 }
 
 /**
@@ -128,6 +138,30 @@ export async function runRepairLoop(
   return current;
 }
 
+/**
+ * RackEditor proposes an edit; a deterministic coherence check decides whether
+ * it is even applicable, and gets one chance to re-ask with the exact problem.
+ *
+ * Without this, an op naming a placementId that doesn't exist is applied as a
+ * silent no-op: the agent reports the change, and the rack is untouched. The
+ * retry is bounded at one — a second identical failure means the agent isn't
+ * going to get there, and saying so beats burning the user's rate limit.
+ */
+async function proposeCoherentEdit(
+  input: Omit<RackEditorInput, "previousAttemptProblems">,
+  opts: { runId?: string; emit: EmitFn }
+): Promise<{ patch: Patch; problems: string[] }> {
+  const first = await runRackEditor(input, { ...opts, note: "Editing your rack…" });
+  const firstProblems = patchCoherenceProblems(input.design, first);
+  if (firstProblems.length === 0) return { patch: first, problems: [] };
+
+  const second = await runRackEditor(
+    { ...input, previousAttemptProblems: firstProblems },
+    { ...opts, note: `Retrying — ${firstProblems.length} op(s) named something that doesn't exist…` }
+  );
+  return { patch: second, problems: patchCoherenceProblems(input.design, second) };
+}
+
 export interface DesignFromPromptResult {
   design: Design;
   requirements: Requirements;
@@ -147,8 +181,9 @@ export async function designFromRequirements(
     runId,
     emit,
     note: "Laying out the rack…",
+    catalogDesign: opts?.currentDesign,
   });
-  let design = buildDesignFromArchitectOutput(architectOutput, requirements);
+  let design = buildDesignFromArchitectOutput(architectOutput, requirements, opts?.currentDesign);
   trace.push(
     traceStep("RackArchitect", architectOutput.rationale || `Proposed ${design.placements.length} placement(s).`, true)
   );
@@ -170,7 +205,7 @@ export async function designFromRequirements(
 
   design = await runRepairLoop(design, requirements, trace, { ...opts, runId, emit });
 
-  emit({ type: "run:done", design, requirements });
+  emit({ type: "run:done", design, requirements, mode: "design" });
   return { design, requirements, trace };
 }
 
@@ -189,20 +224,69 @@ export async function designFromPrompt(
 
   emit({ type: "run:start", runId });
 
-  const requirements = await runRequirementsAgent(text, {
+  const mode = planTurn(opts?.currentDesign ?? null, text).mode;
+  const requirements = await runRequirementsAgent({
+    message: text,
+    history: opts?.history ?? [],
+    current: mode === "amend" || (opts?.currentDesign && opts.currentDesign.placements.length === 0)
+      ? opts?.currentRequirements ?? null : null,
+  }, {
     runId,
     emit,
     note: "Reading your requirements…",
   });
-  const requiredSummary = requirements.required.map((r) => `${r.qty}x ${r.category}`).join(", ");
-  trace.push(
-    traceStep(
-      "RequirementsAgent",
-      `${requirements.rackHeightU}U rack, ${requirements.powerBudgetW}W budget${requirements.redundantPower ? ", redundant power" : ""}${requiredSummary ? ` — ${requiredSummary}` : ""}.`,
-      true
-    )
-  );
+  // RequirementsSchema has no `rationale`, so without this the step would read
+  // "Responded." in the thread. The brief itself is the useful thing to show.
+  const brief = summariseRequirements(requirements);
+  emit({ type: "requirements:update", requirements, summary: brief });
+  trace.push(traceStep("RequirementsAgent", brief, true));
 
+  if (mode === "amend" && opts?.currentDesign) {
+    const baseline: Design = {
+      ...opts.currentDesign,
+      rack: { ...opts.currentDesign.rack, heightU: requirements.rackHeightU, powerBudgetW: requirements.powerBudgetW },
+    };
+    let design = baseline;
+    const { patch, problems } = await proposeCoherentEdit(
+      { request: text, history: opts.history ?? [], requirements, design },
+      { runId, emit }
+    );
+
+    if (problems.length > 0) {
+      // Nothing is applied: an incoherent patch can only damage the rack or
+      // do nothing at all, and the user is owed the real reason either way.
+      const hard = hardViolations(validateDesign(baseline, requirements)).length;
+      emit({
+        type: "verifier:decision",
+        accepted: false,
+        reason: `Rejected — the edit named things that aren't in the rack or the catalog. ${problems[0]}`,
+        hardBefore: hard,
+        hardAfter: hard,
+      });
+      trace.push(traceStep("RackEditor", `Patch rejected — ${problems.join(" ")}`, false, hard));
+      emit({ type: "run:done", design: baseline, requirements, mode: "amend" });
+      return { design: baseline, requirements, trace };
+    }
+
+    if (patch.ops.length > 0) design = applyPatch(design, patch);
+    emit({ type: "design:update", design });
+    trace.push(traceStep("RackEditor", patch.rationale, true));
+    const violations = validateDesign(design, requirements);
+    emit({ type: "validator:result", violations, hardCount: hardViolations(violations).length });
+    design = await runRepairLoop(design, requirements, trace, { ...opts, runId, emit });
+    const baselineHard = hardViolations(validateDesign(baseline, requirements));
+    const finalHard = hardViolations(validateDesign(design, requirements));
+    const priorCodes = new Set(baselineHard.map((violation) => violation.code));
+    const newCodes = finalHard.filter((violation) => !priorCodes.has(violation.code));
+    if (finalHard.length > baselineHard.length || newCodes.length > 0) {
+      emit({ type: "verifier:decision", accepted: false,
+        reason: "Edit would worsen engineering checks; kept the previous equipment layout.",
+        hardBefore: baselineHard.length, hardAfter: finalHard.length });
+      design = baseline;
+    }
+    emit({ type: "run:done", design, requirements, mode: "amend" });
+    return { design, requirements, trace };
+  }
   return designFromRequirements(requirements, { ...opts, runId, trace, emit });
 }
 

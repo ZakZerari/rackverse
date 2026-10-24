@@ -16,17 +16,22 @@ import {
 const PINNED: Record<AgentName, { taskName: string; instructionsHash: string; schemaHash: string }> = {
   RequirementsAgent: {
     taskName: "You are RequirementsAgent, part of a",
-    instructionsHash: "6485d79e",
+    instructionsHash: "b6cf6684",
     schemaHash: "879b95ab",
   },
   RackArchitect: {
     taskName: "You are RackArchitect, part of a",
-    instructionsHash: "8eb47a56",
+    instructionsHash: "a15dc1d5",
     schemaHash: "eac7e4fe",
+  },
+  RackEditor: {
+    taskName: "You are RackEditor, part of a",
+    instructionsHash: "f1c3510e",
+    schemaHash: "3ca468d3",
   },
   RepairAgent: {
     taskName: "You are RepairAgent, part of a",
-    instructionsHash: "6a5720cd",
+    instructionsHash: "05efc2c9",
     schemaHash: "3ca468d3",
   },
 };

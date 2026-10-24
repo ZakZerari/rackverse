@@ -108,6 +108,17 @@ There is **no documented way to merge, rename, or re-point tasks**, and no task-
 - `src/lib/agents/fingerprint.test.ts` **pins those fingerprints**. Change a prompt or schema and the suite fails with "this forks its Mubit task. Update the pin only if that's intended." It caught a real drift the first time it ran.
 - We took **one final deliberate fork** to land everything at once (compact catalog format in the prompts, final schema, final model) — then froze. Expect exactly 3 new tasks from here, plus the smoke test's own.
 
+### The second deliberate fork, and a fourth task
+
+Conversational editing forced one more identity change. Taken deliberately and all at once, rather than drip-fed:
+
+- **A fourth agent, `RackEditor`.** Follow-up messages had nowhere to go, so every one of them re-ran the full design pipeline from an empty rack. The obvious shortcut — route edits through `RepairAgent` — would have been the wrong call for *training*: RepairAgent answers "the validator found these violations", RackEditor answers "a person asked for this change". Same output schema, unrelated inputs. One task holding both would feed its adapter two distributions and teach it neither. Four clean tasks beat three clean plus one confused.
+- **All three existing prompts forked once more** — a `tags` column in the catalog table (so "run AI models" can actually reach the GPU chassis) plus explicit redundant-power rules. Every pin in `fingerprint.test.ts` moved in the same commit, which is exactly what the pins are for: the fork is a decision with a diff attached, not an accident.
+
+Cost: four tasks restart from zero kept examples. That was already true of the three — the console's 20 fragments are unrecoverable either way — so the only question was whether to pay it now or later, and later is strictly worse.
+
+**Not claimed:** none of this has been observed accumulating in the console. The claim is "identity is frozen and pinned", not "the adapters are training".
+
 ### Keeping more examples
 
 Documented rules only (`/concepts`):

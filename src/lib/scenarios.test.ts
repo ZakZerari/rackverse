@@ -17,7 +17,10 @@ describe("generateRequirements", () => {
   });
 
   it("stays within the documented ranges across many seeds", () => {
-    for (let seed = 1; seed <= 200; seed++) {
+    for (const seed of [
+      ...Array.from({ length: 200 }, (_, index) => index + 1),
+      ...Array.from({ length: 50 }, (_, index) => index + 1000),
+    ]) {
       const r = generateRequirements(seed);
       expect(r.rackHeightU).toBeGreaterThanOrEqual(24);
       expect(r.rackHeightU).toBeLessThanOrEqual(48);
@@ -29,6 +32,37 @@ describe("generateRequirements", () => {
       expect(serverReq.qty).toBeLessThanOrEqual(16);
       expect(switchReq.qty).toBeGreaterThanOrEqual(1);
       expect(switchReq.qty).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("every generated benchmark brief admits a valid reference build using real catalog devices", () => {
+    for (const seed of [
+      ...Array.from({ length: 200 }, (_, index) => index + 1),
+      ...Array.from({ length: 50 }, (_, index) => index + 1000),
+    ]) {
+      const requirements = generateRequirements(seed);
+      const serverReq = requirements.required.find((entry) => entry.category === "server")!;
+      const switchReq = requirements.required.find((entry) => entry.category === "switch")!;
+      const gpu = serverReq.notes?.includes("GPU") ?? false;
+      const serverId = gpu ? "supermicro-as-4125gs-tnrt"
+        : requirements.redundantPower ? "supermicro-superserver-1027r-wrf" : "dell-poweredge-r340";
+      const serverHeight = gpu ? 4 : 1;
+      const placements: Design["placements"] = [
+        ...Array.from({ length: serverReq.qty }, (_, index) => ({
+          id: `server-${index}`, catalogId: serverId, startU: 1 + index * serverHeight, face: "front" as const,
+        })),
+        ...Array.from({ length: switchReq.qty }, (_, index) => ({
+          id: `switch-${index}`, catalogId: "brocade-icx-6430-48", startU: 1 + serverReq.qty * serverHeight + index, face: "front" as const,
+        })),
+        { id: "pdu-a", catalogId: "apc-ap7868", startU: 1, face: "rear", feed: "A" },
+        ...(requirements.redundantPower ? [{ id: "pdu-b", catalogId: "apc-ap7868", startU: 1, face: "rear" as const, feed: "B" as const }] : []),
+      ];
+      const design: Design = {
+        rack: { id: "reference", name: "Reference build", heightU: requirements.rackHeightU,
+          mountingDepthMm: 1000, maxLoadKg: 1000, powerBudgetW: requirements.powerBudgetW },
+        placements, version: 1,
+      };
+      expect(hardViolations(validateDesign(design, requirements)), `seed ${seed}`).toEqual([]);
     }
   });
 });
@@ -80,5 +114,11 @@ describe("breakDesign", () => {
     };
     const result = breakDesign(empty);
     expect(result.design.placements).toEqual([]);
+  });
+
+  it("the GPU swap uses a real catalog device, preserving meaningful repair failures", () => {
+    const result = breakDesign(validDesign(), () => 0.99);
+    expect(result.fault).toBe("power_hog");
+    expect(validateDesign(result.design, validRequirements()).map((v) => v.code)).not.toContain("UNKNOWN_CATALOG_ID");
   });
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RACK_ARCHITECT_SYSTEM } from "@/lib/agents/architect";
+import { RACK_EDITOR_SYSTEM } from "@/lib/agents/editor";
 import { REPAIR_AGENT_SYSTEM } from "@/lib/agents/repair";
 import { REQUIREMENTS_AGENT_SYSTEM } from "@/lib/agents/requirements";
 import { ArchitectOutputSchema, PatchSchema, RequirementsSchema } from "@/lib/schemas";
@@ -17,7 +18,7 @@ import { ArchitectOutputSchema, PatchSchema, RequirementsSchema } from "@/lib/sc
  * So: the identity-bearing fields live here, `agents.fingerprint.test.ts`
  * pins them, and that test fails loudly if anything drifts.
  */
-export type AgentName = "RequirementsAgent" | "RackArchitect" | "RepairAgent";
+export type AgentName = "RequirementsAgent" | "RackArchitect" | "RackEditor" | "RepairAgent";
 
 export interface AgentDefinition {
   name: AgentName;
@@ -49,6 +50,13 @@ export const AGENTS: Record<AgentName, AgentDefinition> = {
     purpose: "Lays out the rack: which catalog devices go where, on which face and feed.",
     instructions: RACK_ARCHITECT_SYSTEM,
     schema: ArchitectOutputSchema,
+  },
+  RackEditor: {
+    name: "RackEditor",
+    label: "Editor",
+    purpose: "Changes an existing rack in response to a follow-up request.",
+    instructions: RACK_EDITOR_SYSTEM,
+    schema: PatchSchema,
   },
   RepairAgent: {
     name: "RepairAgent",

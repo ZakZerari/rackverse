@@ -205,9 +205,10 @@ export async function complete<T>({
       })
     );
     const startedAt = Date.now();
+    let mubitRequestId: string | null = null;
 
     try {
-      const stream = await client.chat.completions.create({
+      const { data: stream, response } = await client.chat.completions.create({
         model,
         messages: [
           { role: "system", content: system },
@@ -222,7 +223,8 @@ export async function complete<T>({
           : {}),
         stream: true,
         stream_options: { include_usage: true },
-      });
+      }).withResponse();
+      mubitRequestId = response.headers.get("x-middleware-request-id");
 
       let raw = "";
       let promptTokens: number | undefined;
@@ -247,6 +249,8 @@ export async function complete<T>({
       logCall({
         ts: new Date().toISOString(),
         agent,
+        model,
+        mubitRequestId,
         runId,
         latencyMs,
         promptTokens,
@@ -265,6 +269,8 @@ export async function complete<T>({
       logCall({
         ts: new Date().toISOString(),
         agent,
+        model,
+        mubitRequestId,
         runId,
         latencyMs,
         ok: false,

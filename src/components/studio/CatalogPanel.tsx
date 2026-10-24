@@ -2,8 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { CATALOG } from "@/data/catalog";
-import type { Category } from "@/lib/types";
+import { catalogFor } from "@/lib/catalog";
+import { useRackStore } from "@/lib/store";
+import type { CatalogItem, Category } from "@/lib/types";
+import { EquipmentEditor } from "@/components/studio/EquipmentEditor";
+import { Button } from "@/components/ui/button";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   server: "Servers",
@@ -27,8 +30,7 @@ const CATEGORY_ACCENT: Record<Category, string> = {
 
 const ORDER: Category[] = ["server", "switch", "storage", "ups", "pdu", "patch", "blank"];
 
-function CatalogCard({ catalogId }: { catalogId: string }) {
-  const item = CATALOG.find((c) => c.id === catalogId)!;
+function CatalogCard({ item, onEdit }: { item: CatalogItem; onEdit: (item: CatalogItem) => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `catalog:${item.id}`,
     data: { type: "catalog", catalogId: item.id },
@@ -58,31 +60,38 @@ function CatalogCard({ catalogId }: { catalogId: string }) {
         </p>
       </div>
       <span className="shrink-0 font-mono text-[10px] tabular text-muted-foreground">
-        ${(item.priceUsd / 1000).toFixed(item.priceUsd >= 1000 ? 1 : 2)}k
+        ${item.priceUsd.toLocaleString()}
       </span>
+      <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(item); }}
+        className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground" aria-label={`Edit ${item.name}`}>Edit</button>
     </div>
   );
 }
 
 export function CatalogPanel() {
   const [query, setQuery] = useState("");
+  const design = useRackStore((s) => s.design);
+  const [editing, setEditing] = useState<CatalogItem | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const catalog = useMemo(() => catalogFor(design), [design]);
 
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q ? CATALOG.filter((c) => c.name.toLowerCase().includes(q) || c.id.includes(q)) : CATALOG;
+    const filtered = q ? catalog.filter((c) => `${c.manufacturer} ${c.name} ${c.id}`.toLowerCase().includes(q)) : catalog;
     return ORDER.map((category) => ({
       category,
       items: filtered.filter((c) => c.category === category),
     })).filter((group) => group.items.length > 0);
-  }, [query]);
+  }, [catalog, query]);
 
   return (
-    <aside className="flex min-h-0 flex-col border-r border-border bg-panel">
+    <aside className="flex min-h-0 flex-1 flex-col border-r border-border bg-panel">
       <header className="shrink-0 space-y-2 border-b border-border px-3 py-2">
         <div className="flex items-baseline justify-between">
           <h2 className="text-xs font-semibold">Equipment</h2>
-          <span className="font-mono text-[10px] text-muted-foreground">{CATALOG.length} items</span>
+          <span className="font-mono text-[10px] text-muted-foreground">{catalog.length} items</span>
         </div>
+        <Button size="xs" variant="outline" className="w-full" onClick={() => { setEditing(null); setEditorOpen(true); }}>+ Add equipment</Button>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -100,7 +109,7 @@ export function CatalogPanel() {
               </h3>
               <div className="space-y-1">
                 {items.map((item) => (
-                  <CatalogCard key={item.id} catalogId={item.id} />
+                  <CatalogCard key={item.id} item={item} onEdit={(selected) => { setEditing(selected); setEditorOpen(true); }} />
                 ))}
               </div>
             </div>
@@ -108,6 +117,7 @@ export function CatalogPanel() {
           {grouped.length === 0 && <p className="px-1 text-[11px] text-muted-foreground">No matches.</p>}
         </div>
       </div>
+      {editorOpen && <EquipmentEditor item={editing} open={editorOpen} onOpenChange={setEditorOpen} />}
     </aside>
   );
 }

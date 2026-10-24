@@ -19,10 +19,12 @@ export type RunEvent =
       note?: string;
     }
   | { type: "agent:error"; agent: string; attempt: number; error: string }
+  /** The brief as it now stands — carried across turns rather than re-derived. */
+  | { type: "requirements:update"; requirements: Requirements; summary: string }
   | { type: "validator:result"; violations: Violation[]; hardCount: number }
   | { type: "verifier:decision"; accepted: boolean; reason: string; hardBefore: number; hardAfter: number }
   | { type: "design:update"; design: Design }
-  | { type: "run:done"; design: Design; requirements: Requirements }
+  | { type: "run:done"; design: Design; requirements: Requirements; mode?: "design" | "amend" }
   /** A repair result awaiting the user's Accept/Reject — never auto-applied. */
   | { type: "repair:proposed"; design: Design; accepted: boolean; reason: string }
   | { type: "run:error"; error: string };

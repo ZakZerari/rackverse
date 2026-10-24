@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDU_0U, SERVER_1U } from "@/lib/__fixtures__/devices";
+import { PDU_0U, SERVER_1U, SWITCH_1U } from "@/lib/__fixtures__/devices";
 import type { Design, Rack, Requirements } from "@/lib/types";
 import { verifyPatch } from "@/lib/verify";
 
@@ -69,5 +69,41 @@ describe("verifyPatch", () => {
       reqs()
     );
     expect(result.accepted).toBe(false);
+  });
+
+  it("rejects a lower violation count when an overlap moves to a new device pair", () => {
+    const design: Design = {
+      rack: rack(),
+      placements: [
+        { id: "a", catalogId: "generic-blanking-panel-1u", startU: 1, face: "front" },
+        { id: "b", catalogId: "generic-blanking-panel-1u", startU: 1, face: "front" },
+        { id: "c", catalogId: "generic-blanking-panel-1u", startU: 1, face: "front" },
+        { id: "d", catalogId: "generic-blanking-panel-1u", startU: 2, face: "front" },
+      ],
+      version: 1,
+    };
+    const result = verifyPatch(design, {
+      ops: [{ op: "move", placementId: "c", newStartU: 2 }], rationale: "Move one panel",
+    }, reqs());
+    expect(result.before.filter((v) => v.code === "RACK_OVERLAP")).toHaveLength(3);
+    expect(result.after.filter((v) => v.code === "RACK_OVERLAP")).toHaveLength(2);
+    expect(result.accepted).toBe(false);
+    expect(result.reason).toContain("RACK_OVERLAP");
+  });
+
+  it("rejects a smaller error count when an existing power overload gets worse", () => {
+    const design: Design = {
+      rack: rack({ powerBudgetW: 100 }),
+      placements: [{ id: "server", catalogId: SERVER_1U.id, startU: 1, face: "front" }],
+      version: 1,
+    };
+    const result = verifyPatch(design, { ops: [
+      { op: "add", catalogId: PDU_0U.id, startU: 1, face: "rear" },
+      { op: "add", catalogId: SWITCH_1U.id, startU: 2, face: "front" },
+      { op: "add", catalogId: SERVER_1U.id, startU: 3, face: "front" },
+    ], rationale: "Add supporting equipment but overload power further" }, reqs({ powerBudgetW: 100 }));
+    expect(result.after.length).toBeLessThan(result.before.length);
+    expect(result.accepted).toBe(false);
+    expect(result.reason).toContain("POWER_BUDGET_EXCEEDED");
   });
 });

@@ -1,4 +1,4 @@
-import { getCatalogItem } from "@/data/catalog";
+import { catalogItemFor } from "@/lib/catalog";
 import type {
   CatalogItem,
   Design,
@@ -20,7 +20,7 @@ function resolvePlacements(design: Design): {
   const resolved: Resolved[] = [];
   const unknown: Placement[] = [];
   for (const placement of design.placements) {
-    const item = getCatalogItem(placement.catalogId);
+    const item = catalogItemFor(design, placement.catalogId);
     if (item) resolved.push({ placement, item });
     else unknown.push(placement);
   }
@@ -194,6 +194,27 @@ export function validateDesign(
         message: `Redundant power requires both an A and a B feed, each able to carry the full ${totalPower}W load alone.`,
         placementIds: [...feedA, ...feedB].map(({ placement }) => placement.id),
         details: { capacityA, capacityB, totalPower },
+      });
+    }
+
+    const singlePsuServers = resolved.filter(({ item }) => item.category === "server" && (item.psuCount ?? 1) < 2);
+    if (singlePsuServers.length > 0) {
+      violations.push({
+        code: "REDUNDANCY_DEVICE_PSU", severity: "hard",
+        message: `${singlePsuServers.length} server(s) have only one PSU and cannot use independent A/B feeds.`,
+        placementIds: singlePsuServers.map(({ placement }) => placement.id),
+      });
+    }
+
+    const dualPsuServers = resolved.filter(({ item }) => item.category === "server" && (item.psuCount ?? 1) >= 2).length;
+    const outletsA = feedA.reduce((sum, { item }) => sum + (item.category === "pdu" ? item.outlets ?? 0 : 0), 0);
+    const outletsB = feedB.reduce((sum, { item }) => sum + (item.category === "pdu" ? item.outlets ?? 0 : 0), 0);
+    if (outletsA < dualPsuServers || outletsB < dualPsuServers) {
+      violations.push({
+        code: "REDUNDANCY_FEED_OUTLETS_INSUFFICIENT", severity: "hard",
+        message: `Each feed needs at least ${dualPsuServers} PDU outlet(s) for dual-PSU servers; A has ${outletsA}, B has ${outletsB}.`,
+        placementIds: [...feedA, ...feedB].map(({ placement }) => placement.id),
+        details: { outletsA, outletsB, dualPsuServers },
       });
     }
   }

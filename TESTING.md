@@ -1,0 +1,33 @@
+# RackVerse verification and Mubit evaluation
+
+## Local engineering gate
+
+Run `npm test`, `npx tsc --noEmit`, `npm run lint`, and `npm run check:llm` before collecting Mubit examples. The tests use real catalog IDs and a complete 42U virtualization rack with six dual-PSU servers, storage, switching, and independent A/B PDUs. They check unit occupancy, electrical draw, weight, depth, outlet count, port count, budget, feed capacity, per-feed outlets, and server PSU redundancy. They also inject faults and check that the verifier accepts a clean repair and rejects a repair with a new collision.
+
+The suite exercises rack resizing, custom equipment specs and prices, catalog reset, browser workspace round trips, and the agent orchestration path with mocked proposals. No API key or Mubit quota is needed for these checks. `src/lib/agents/fingerprint.test.ts` pins each agent's instruction and output schema identity; update those pins only when deliberately creating a new Mubit task.
+
+## Scenario design
+
+`generateRequirements(seed)` produces stable edge, virtualization, dense compute, and GPU-training briefs. Rack sizes range from 24U to 48U and power budgets from 3kW to 12kW. Budgets include supporting PDU and switch equipment. GPU briefs ask for GPU-capable servers and have enough money and power for the real GPU catalog item. A local test builds a valid reference rack for 200 training seeds and 50 held-out seeds. This is a feasibility check, not a claim that the AI will choose that rack.
+
+Seeds 1 onward are for training and lesson collection. Seeds 1000 onward are held out. Keep those ranges separate when comparing prompts or models. The benchmark isolates its lesson store in memory, so held-out repairs cannot add examples to the training store.
+
+## Live Mubit run
+
+1. Set `MUBIT_API_KEY` and `MUBIT_MODEL` in `.env.local`.
+2. Run `npm run smoke-mubit` to confirm the endpoint and structured output mode.
+3. Run `npm run bench -- --train-n 8 --held-out-n 8` as a small end-to-end check. The full comparison is `npm run bench -- --train-n 99 --held-out-n 50`; it makes many real model calls and is paced by the configured request cap.
+4. Open `/lab` to inspect local Config A (no lessons) against Config B (lessons from train seeds). Review `data/bench-results.json` and `data/calls.jsonl` for seed counts, first-attempt validity, repair success, rejected proposals, latency and token use.
+5. Evaluate any Mubit adapter separately in Mubit's console with the same held-out briefs. Config C remains a placeholder until that comparison is recorded.
+
+For rack-level evidence, create a rack on `/`, open it, and submit a copilot prompt or Auto-repair. Returning to `/` shows that rack's Mubit call attempts, schema-valid replies, average successful-call latency, and runs whose resulting design or repair proposal had zero hard violations. The dashboard also shows the server-wide call log, including older calls that predate rack IDs. Rack-scoped metrics are tested against mixed call logs so similar rack IDs and benchmark runs cannot be attributed to the wrong rack. The design and repair API tests verify that the same run ID reaches the agent pipeline and its recorded engineering outcome.
+
+These are local Mubit gateway and deterministic-verifier measurements. They do not expose Mubit adapter-training keep rates or prove physical rack performance. A repair run can describe a verified proposal even if the user later declines to apply it; the separate engineering status on the rack card always evaluates the currently saved design.
+
+For a fair comparison, keep the model, task fingerprints, catalog, scenario generator, validator, and seed ranges fixed throughout a run. A changed task fingerprint can start a new Mubit task rather than continuing the prior adapter's examples.
+
+The RackArchitect, RackEditor and RepairAgent instructions were deliberately updated for the A/B PSU and outlet checks. Their current fingerprints are pinned in the tests. Treat earlier Mubit task runs as a different prompt version when comparing results.
+
+## Model limits
+
+The engineering gate checks catalog estimates, aggregate rack power, capacity and fit. It does not model exact cabling, phase balance, thermal airflow, rail compatibility or switch uplink topology. User-edited specs are treated as supplied data. Passing this gate supports a design review, not installation approval.

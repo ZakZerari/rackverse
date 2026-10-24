@@ -4,6 +4,8 @@ import { join } from "node:path";
 export interface CallLogEntry {
   ts: string;
   agent: string;
+  model?: string;
+  mubitRequestId?: string | null;
   runId?: string;
   latencyMs: number;
   promptTokens?: number;

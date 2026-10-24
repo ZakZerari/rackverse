@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { getCatalogItem } from "@/data/catalog";
+import { catalogItemFor } from "@/lib/catalog";
 import type { TimelineItem, Turn } from "@/lib/conversation";
 import { readSSE } from "@/lib/events";
 import { useRackStore } from "@/lib/store";
+import { useFleetStore } from "@/lib/fleet";
+import { compactHistory, planTurn } from "@/lib/turn";
 import type { Design } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { EquipmentEditor } from "@/components/studio/EquipmentEditor";
 import { Textarea } from "@/components/ui/textarea";
 
 const EXAMPLES = [
@@ -16,7 +19,7 @@ const EXAMPLES = [
   "GPU training rack — 4 GPU servers, redundant power, 48U, 20kW",
 ];
 
-export function CopilotPanel() {
+export function CopilotPanel({ rackId }: { rackId: string }) {
   const turns = useRackStore((s) => s.turns);
   const isRunning = useRackStore((s) => s.isRunning);
   const beginTurn = useRackStore((s) => s.beginTurn);
@@ -32,11 +35,16 @@ export function CopilotPanel() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns]);
 
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   async function handleSend() {
     const prompt = text.trim();
     if (!prompt || isRunning) return;
     setText("");
-    beginTurn("design", prompt);
+    const context = useRackStore.getState();
+    // Same router the server runs, so the turn is never labelled "amend" while
+    // the backend rebuilds from scratch (or the reverse).
+    beginTurn(planTurn(context.design, prompt).mode, prompt);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -45,16 +53,28 @@ export function CopilotPanel() {
       const res = await fetch("/api/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: prompt }),
+        body: JSON.stringify({
+          text: prompt,
+          rackId,
+          currentDesign: context.design,
+          currentRequirements: context.requirements,
+          history: compactHistory(
+            context.turns.map((turn) => ({ user: turn.prompt, outcome: turn.summary ?? "In progress" }))
+          ),
+        }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? `Request failed (${res.status}).`);
       }
-      for await (const event of readSSE(res.body)) applyEvent(event);
+      for await (const event of readSSE(res.body)) {
+        if (useFleetStore.getState().activeRackId !== rackId) break;
+        applyEvent(event);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      if (useFleetStore.getState().activeRackId !== rackId) return;
       applyEvent({ type: "run:error", error: err instanceof Error ? err.message : String(err) });
     } finally {
       abortRef.current = null;
@@ -62,7 +82,7 @@ export function CopilotPanel() {
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-border bg-panel">
+    <aside className="flex min-h-0 flex-1 flex-col border-l border-border bg-panel">
       <header className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
         <div>
           <h2 className="text-xs font-semibold">Copilot</h2>
@@ -333,12 +353,13 @@ function PendingRepairCard() {
 }
 
 function SelectedDeviceCard() {
+  const [editing, setEditing] = useState(false);
   const design = useRackStore((s) => s.design);
   const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
   const removePlacement = useRackStore((s) => s.removePlacement);
 
   const selected = design.placements.find((p) => p.id === selectedPlacementId);
-  const item = selected ? getCatalogItem(selected.catalogId) : undefined;
+  const item = selected ? catalogItemFor(design, selected.catalogId) : undefined;
   if (!selected || !item) return null;
 
   const specs: [string, string, boolean][] = [
@@ -370,12 +391,14 @@ function SelectedDeviceCard() {
         ))}
       </dl>
       <p className="mt-1.5 border-t border-border/60 pt-1.5 text-[10px] leading-snug text-muted-foreground">
-        Specs from the NetBox device-type library (CC0).
-        {item.estimated.length > 0 && ` Fields marked "est" are our estimates.`}
+        {item.source === "custom" ? "User-defined equipment." : "Source: NetBox device-type library (CC0)."}
+        {item.estimated.length > 0 && ` Fields marked "est" are estimates or user edits.`}
       </p>
+      <Button size="xs" variant="outline" className="mt-2 w-full" onClick={() => setEditing(true)}>Edit specs and price</Button>
       <Button size="xs" variant="destructive" className="mt-2 w-full" onClick={() => removePlacement(selected.id)}>
         Remove
       </Button>
+      {editing && <EquipmentEditor item={item} open={editing} onOpenChange={setEditing} />}
     </div>
   );
 }

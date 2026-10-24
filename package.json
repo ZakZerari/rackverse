@@ -14,6 +14,7 @@
     "pick-model": "tsx scripts/pick-model.ts",
     "train-traffic": "tsx scripts/train-traffic.ts",
     "bench": "tsx scripts/bench.ts",
+    "replay": "tsx scripts/replay-conversation.ts",
     "build-catalog": "tsx scripts/build-catalog.ts"
   },
   "dependencies": {

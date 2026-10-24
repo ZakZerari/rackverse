@@ -106,7 +106,7 @@ export default function LabPage() {
           </p>
         </div>
         <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/" />}>
-          Back to Studio
+          Dashboard
         </Button>
       </header>
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { AnimatePresence, motion } from "motion/react";
-import { getCatalogItem } from "@/data/catalog";
+import { catalogItemFor } from "@/lib/catalog";
 import { useRackStore } from "@/lib/store";
 import type { Category, Placement } from "@/lib/types";
 import { Rack3D } from "@/components/studio/Rack3D";
@@ -47,7 +47,8 @@ function RowSlot({ startU }: { startU: number }) {
 }
 
 function PlacementBlock({ placement, violated }: { placement: Placement; violated: boolean }) {
-  const item = getCatalogItem(placement.catalogId);
+  const design = useRackStore((s) => s.design);
+  const item = catalogItemFor(design, placement.catalogId);
   const rackHeightU = useRackStore((s) => s.design.rack.heightU);
   const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
   const selectPlacement = useRackStore((s) => s.selectPlacement);
@@ -115,7 +116,8 @@ function PlacementBlock({ placement, violated }: { placement: Placement; violate
 }
 
 function ZeroUChip({ placement }: { placement: Placement }) {
-  const item = getCatalogItem(placement.catalogId);
+  const design = useRackStore((s) => s.design);
+  const item = catalogItemFor(design, placement.catalogId);
   const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
   const selectPlacement = useRackStore((s) => s.selectPlacement);
   const setFeed = useRackStore((s) => s.setFeed);
@@ -166,12 +168,13 @@ function ZeroUChip({ placement }: { placement: Placement }) {
 }
 
 function ZeroUTray() {
+  const design = useRackStore((s) => s.design);
   const face = useRackStore((s) => s.face);
   const placements = useRackStore((s) => s.design.placements);
   const { setNodeRef, isOver } = useDroppable({ id: "slot:0u", data: { type: "slot", startU: 1 } });
 
   const zeroU = placements.filter((p) => {
-    const item = getCatalogItem(p.catalogId);
+    const item = catalogItemFor(design, p.catalogId);
     return item && item.heightU <= 0 && p.face === face;
   });
 
@@ -215,7 +218,7 @@ export function RackElevation() {
   // top of a tall rack. Bring the populated region into view.
   const scrollRef = useRef<HTMLDivElement>(null);
   const topmostUsedU = facePlacements.reduce((max, p) => {
-    const item = getCatalogItem(p.catalogId);
+    const item = catalogItemFor(design, p.catalogId);
     if (!item || item.heightU <= 0) return max;
     return Math.max(max, p.startU + item.heightU - 1);
   }, 0);

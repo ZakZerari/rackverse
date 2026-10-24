@@ -1,4 +1,4 @@
-import { catalogSummary } from "@/data/catalog";
+import { catalogSummaryFor } from "@/lib/catalog";
 import type { AgentCallOptions } from "@/lib/agents/requirements";
 import { complete } from "@/lib/llm";
 import { PatchSchema } from "@/lib/schemas";
@@ -30,6 +30,7 @@ Rules:
 - U1 is the BOTTOM of the rack. Keep devices inside the rack's heightU and out of each other's rack units.
 - Interpret the request in context: "cheaper" means swap for lower-usd equivalents, "bigger"/"more" means add capacity, "better" means improve what the conversation has been about.
 - Supporting gear is allowed when the change needs it — adding servers may need switch ports and PDU outlets. A deterministic validator runs after you, and a repair agent fixes leftovers, so a reasonable change beats a perfect one.
+- If requirements call for redundant power, added servers need at least 2 PSUs and each A/B feed needs a PDU outlet for each dual-PSU server.
 - If a previous attempt is reported back to you as invalid, fix precisely what was reported.
 
 Respond with ONLY a JSON object matching the required schema: { ops: [...], rationale }. The rationale is shown to the user — one short sentence, plain English, describing what you changed. No prose outside the JSON, no markdown fences.`;
@@ -49,7 +50,7 @@ export async function runRackEditor(input: RackEditorInput, opts: AgentCallOptio
     conversation: input.history,
     requirements: input.requirements,
     design: input.design,
-    catalog: catalogSummary(),
+    catalog: catalogSummaryFor(input.design),
     previousAttemptProblems: input.previousAttemptProblems,
   });
   return complete({

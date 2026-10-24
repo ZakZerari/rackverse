@@ -1,4 +1,4 @@
-import { getCatalogItem } from "@/data/catalog";
+import { catalogItemFor } from "@/lib/catalog";
 import type { Design, Placement, Requirements } from "@/lib/types";
 
 /** Deterministic PRNG (mulberry32) so a given seed always reproduces the same scenario. */
@@ -14,31 +14,40 @@ function seededRng(seed: number): () => number {
 }
 
 /**
- * A varied, deterministic Requirements scenario for a given seed — used by
- * the benchmark (train seeds 1-99, held-out seeds 1000-1049) and
- * train-traffic. Ranges per the brief: rack 24-48U, 2-16 servers, 1-3
- * switches, power 3-12kW, budgets and redundancy on/off, some GPU-heavy.
+ * Workload profiles keep the benchmark plausible: budgets include supporting
+ * network/power gear and GPU workloads receive enough power and money for
+ * actual GPU servers. Seeds are stable across training and held-out runs.
  */
 export function generateRequirements(seed: number): Requirements {
   const rng = seededRng(seed);
-  const rackHeightU = 24 + Math.floor(rng() * 25);
-  const serverQty = 2 + Math.floor(rng() * 15);
-  const switchQty = 1 + Math.floor(rng() * 3);
-  const powerBudgetW = 3000 + Math.floor(rng() * 9000);
-  const redundantPower = rng() < 0.5;
-  const budgetUsd = rng() < 0.7 ? 20000 + Math.floor(rng() * 80000) : undefined;
-  const gpuHeavy = rng() < 0.2;
+  const profile = Math.floor(rng() * 4);
+  const serverQty = profile === 0 ? 2 + Math.floor(rng() * 3)
+    : profile === 1 ? 5 + Math.floor(rng() * 8)
+      : profile === 2 ? 13 + Math.floor(rng() * 4)
+        : 2 + Math.floor(rng() * 2);
+  const switchQty = profile === 0 || profile === 3 ? 1 : 1 + Math.floor(rng() * 2);
+  const rackHeightU = profile === 0 ? 24 + Math.floor(rng() * 7) : profile === 3 ? 48 : 36 + Math.floor(rng() * 13);
+  const powerBudgetW = profile === 0 ? 3000 + Math.floor(rng() * 2001)
+    : profile === 1 ? Math.max(6000, Math.min(12000, serverQty * 700 + 1500))
+      : profile === 2 ? 10000 + Math.floor(rng() * 2001) : 12000;
+  const redundantPower = profile !== 3 && rng() < 0.5;
+  const adjustedPowerBudgetW = profile === 2 && redundantPower ? 12000 : powerBudgetW;
+  const budgetUsd = profile === 0 ? 20000 + Math.floor(rng() * 10001)
+    : profile === 1 ? 30000 + serverQty * 6000
+      : profile === 2 ? 80000 + Math.floor(rng() * 20001)
+        : 60000 * serverQty + 10000;
 
   return {
     rackHeightU,
-    powerBudgetW,
+    powerBudgetW: adjustedPowerBudgetW,
     budgetUsd,
     redundantPower,
     required: [
       {
         category: "server",
         qty: serverQty,
-        notes: gpuHeavy ? "compute-heavy workload; prefer GPU-capable servers" : undefined,
+        notes: profile === 3 ? "GPU training: each server must be GPU capable"
+          : profile === 2 ? "dense compute; prefer efficient 1U servers" : undefined,
       },
       { category: "switch", qty: switchQty },
     ],
@@ -53,8 +62,8 @@ export interface BreakResult {
   description: string;
 }
 
-function heightOf(p: Placement): number {
-  return getCatalogItem(p.catalogId)?.heightU ?? 0;
+function heightOf(design: Design, p: Placement): number {
+  return catalogItemFor(design, p.catalogId)?.heightU ?? 0;
 }
 
 function pickOne<T>(arr: T[], rng: () => number): T {
@@ -78,12 +87,12 @@ function pickTwo<T>(arr: T[], rng: () => number): [T, T] {
  */
 export function breakDesign(design: Design, rng: () => number = Math.random): BreakResult {
   const placements = design.placements;
-  const tallPlacements = placements.filter((p) => heightOf(p) > 0);
+  const tallPlacements = placements.filter((p) => heightOf(design, p) > 0);
   const criticalPlacements = placements.filter((p) => {
-    const category = getCatalogItem(p.catalogId)?.category;
+    const category = catalogItemFor(design, p.catalogId)?.category;
     return category === "pdu" || category === "ups" || category === "switch";
   });
-  const serverPlacements = placements.filter((p) => getCatalogItem(p.catalogId)?.category === "server");
+  const serverPlacements = placements.filter((p) => catalogItemFor(design, p.catalogId)?.category === "server");
 
   const candidates: FaultKind[] = [];
   if (tallPlacements.length >= 2) candidates.push("overlap");
@@ -103,7 +112,7 @@ export function breakDesign(design: Design, rng: () => number = Math.random): Br
     case "overlap": {
       const [a, b] = pickTwo(tallPlacements, rng);
       newPlacements = newPlacements.map((p) => (p.id === b.id ? { ...p, startU: a.startU, face: a.face } : p));
-      description = `Moved ${getCatalogItem(b.catalogId)?.name} on top of ${getCatalogItem(a.catalogId)?.name}.`;
+      description = `Moved ${catalogItemFor(design, b.catalogId)?.name} on top of ${catalogItemFor(design, a.catalogId)?.name}.`;
       break;
     }
     case "out_of_bounds": {
@@ -111,21 +120,21 @@ export function breakDesign(design: Design, rng: () => number = Math.random): Br
       newPlacements = newPlacements.map((p) =>
         p.id === target.id ? { ...p, startU: design.rack.heightU + 5 } : p
       );
-      description = `Moved ${getCatalogItem(target.catalogId)?.name} past the top of the rack.`;
+      description = `Moved ${catalogItemFor(design, target.catalogId)?.name} past the top of the rack.`;
       break;
     }
     case "remove_critical": {
       const target = pickOne(criticalPlacements, rng);
       newPlacements = newPlacements.filter((p) => p.id !== target.id);
-      description = `Removed ${getCatalogItem(target.catalogId)?.name}.`;
+      description = `Removed ${catalogItemFor(design, target.catalogId)?.name}.`;
       break;
     }
     case "power_hog": {
       const target = pickOne(serverPlacements, rng);
       newPlacements = newPlacements.map((p) =>
-        p.id === target.id ? { ...p, catalogId: "srv-4u-gpu" } : p
+        p.id === target.id ? { ...p, catalogId: "supermicro-as-4125gs-tnrt" } : p
       );
-      description = `Swapped ${getCatalogItem(target.catalogId)?.name} for a 4U GPU server in the same slot.`;
+      description = `Swapped ${catalogItemFor(design, target.catalogId)?.name} for a 4U GPU server in the same slot.`;
       break;
     }
   }

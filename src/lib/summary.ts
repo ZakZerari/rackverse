@@ -1,4 +1,4 @@
-import { getCatalogItem } from "@/data/catalog";
+import { catalogItemFor } from "@/lib/catalog";
 import type { Design } from "@/lib/types";
 
 export interface DesignTotals {
@@ -28,7 +28,7 @@ export function designTotals(design: Design): DesignTotals {
   };
 
   for (const placement of design.placements) {
-    const item = getCatalogItem(placement.catalogId);
+    const item = catalogItemFor(design, placement.catalogId);
     if (!item) continue;
     totals.deviceCount += 1;
     totals.powerW += item.powerW;
