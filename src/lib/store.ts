@@ -350,7 +350,6 @@ export const useRackStore = create<RackStore>((set, get) => ({
     const result = breakDesign(design);
     const turn = newTurn("break", "Break it");
     turn.status = "done";
-    turn.summary = result.description;
     turn.items = [
       {
         kind: "note",
