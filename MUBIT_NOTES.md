@@ -178,10 +178,10 @@ than a hundred different racks, lands on exactly four task keys:
 
 | Agent | Local task key | Recorded calls |
 | --- | --- | --- |
-| RackArchitect | `68e4bc4653f462fd` | 115 |
-| RepairAgent | `7378aa0fc57c7b55` | 91 |
-| RequirementsAgent | `2bb2d335bb93ae7b` | 15 |
-| RackEditor | `51280a9ab53334e6` | 14 |
+| RackArchitect | `68e4bc4653f462fd` | 123 |
+| RepairAgent | `7378aa0fc57c7b55` | 111 |
+| RequirementsAgent | `2bb2d335bb93ae7b` | 61 |
+| RackEditor | `51280a9ab53334e6` | 52 |
 
 Four agents, four tasks, any number of racks. That is the generalisation
 holding, and it is measured from `data/calls.jsonl`, not assumed.
@@ -213,6 +213,23 @@ Please retry in 9h3m36s.
 The trainer stops on the first daily-quota error instead of failing every
 remaining turn against the same wall, and resumes from what is already
 recorded when re-run.
+
+### Resolved: the key moved to a paid tier
+
+A Gemini Advanced / Google One AI Premium subscription does **not** raise API
+quotas — it buys the consumer app, not `generativelanguage.googleapis.com`.
+The API tier is a property of the Google Cloud project behind the key. Once
+billing was enabled on that project the daily wall disappeared, and the
+per-minute cap went with it:
+
+| | Free tier | After billing |
+| --- | --- | --- |
+| Burst of 8 calls, unpaced | 429 | 8/8, ~500ms each |
+| 22 training turns | ~4 min (pacer-bound) | **12 seconds** |
+
+`MUBIT_RPM` is now 60 in `.env.local` instead of the free-tier-safe default of
+12. That single number was throttling every run — including the Studio UI — to
+a limit that no longer exists.
 
 ## Model choice — this was the whole ballgame
 
