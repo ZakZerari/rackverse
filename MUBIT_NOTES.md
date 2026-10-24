@@ -116,7 +116,17 @@ Documented rules only (`/concepts`):
 - Some kept examples are deliberately withheld as test cases.
 - Length matters: *"examples too long to train on → Send calls with shorter requests and answers."*
 
-That last one was actionable. The catalog was being inlined as JSON into every Architect and Repair call at **~1,900 tokens**; it's now a pipe-delimited table at **~590 tokens** (3.2× smaller), which is the bulk of each request.
+That last one was actionable, and measuring the actual prompt composition found two offenders rather than one:
+
+| part of the RepairAgent prompt | before | after |
+|---|---|---|
+| lessons | 727 tok | **131 tok** |
+| catalog | 1,900 tok | **592 tok** |
+| design | 307 tok | 307 tok |
+| violations | 307 tok | 307 tok |
+| requirements | 53 tok | 53 tok |
+
+The catalog was inlined as JSON; it's now a pipe-delimited table. Lessons were sent as full records — verbatim context blob plus prose — and were quietly the *largest* single chunk, growing with the store (41 lessons at the time of measuring). They're now rendered as `violation codes => ops that fixed it`, which is both 5.5× smaller and a clearer signal. Measured live: RepairAgent prompts went 3,009 → 2,559 tokens and no longer grow as lessons accumulate.
 
 **Still unverified** (not in the docs, flagged rather than guessed): whether streaming suppresses keeping, whether failed/retried calls are excluded, and whether near-identical requests are deduped. If the keep rate stays low with clean tasks, streaming is the first thing to test — it's a one-line switch in `src/lib/llm.ts`.
 

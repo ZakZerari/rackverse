@@ -1,7 +1,7 @@
 import { catalogSummary } from "@/data/catalog";
 import type { AgentCallOptions } from "@/lib/agents/requirements";
 import { complete } from "@/lib/llm";
-import type { Lesson } from "@/lib/lessons";
+import { renderLessonsForPrompt, type Lesson } from "@/lib/lessons";
 import { PatchSchema } from "@/lib/schemas";
 import type { Design, Patch, Requirements, Violation } from "@/lib/types";
 
@@ -35,10 +35,10 @@ export async function runRepairAgent(
 ): Promise<Patch> {
   const user = JSON.stringify({
     design: input.design,
-    violations: input.violations,
+    violations: input.violations.map((v) => ({ code: v.code, message: v.message, placementIds: v.placementIds })),
     requirements: input.requirements,
     catalog: catalogSummary(),
-    verifiedPastFixes: input.lessons,
+    verifiedPastFixes: renderLessonsForPrompt(input.lessons),
   });
   return complete({
     agent: "RepairAgent",

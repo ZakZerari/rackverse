@@ -59,6 +59,35 @@ export function countStoredLessons(): number {
 }
 
 /**
+ * Compact rendering for the RepairAgent prompt. Sent verbatim as JSON these
+ * were the single largest part of the request (~730 tokens for three, and
+ * growing with the store) — larger even than the catalog. The agent only
+ * needs the shape of the fix: which violation codes, which ops, which
+ * catalog ids. The prose and the full context blob add length without
+ * teaching anything, and over-long requests are a documented reason Mubit
+ * skips an example when training.
+ */
+export function renderLessonsForPrompt(lessons: Lesson[]): string {
+  if (lessons.length === 0) return "none";
+  return lessons
+    .map((lesson) => {
+      const ops = lesson.patch.ops
+        .map((op) =>
+          op.op === "add"
+            ? `add ${op.catalogId}@U${op.startU}/${op.face}${op.feed ? `/feed${op.feed}` : ""}`
+            : op.op === "move"
+              ? `move →U${op.newStartU}${op.newFace ? `/${op.newFace}` : ""}`
+              : op.op === "replace"
+                ? `replace →${op.newCatalogId}`
+                : "remove"
+        )
+        .join("; ");
+      return `${lesson.errorCodeSignature.join("+")} => ${ops}`;
+    })
+    .join("\n");
+}
+
+/**
  * An isolated, in-memory lesson store — for the benchmark, which needs
  * Config A (no lessons) vs. Config B (lessons learned only from train seeds)
  * without reading or writing the shared data/lessons.json.
