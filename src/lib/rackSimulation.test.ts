@@ -3,6 +3,7 @@ import { CATALOG } from "@/data/catalog";
 import { catalogItemFor } from "@/lib/catalog";
 import { removeEquipment, resetEquipment, updateRack, upsertEquipment } from "@/lib/configuration";
 import { designTotals } from "@/lib/summary";
+import { applyChaosPreset } from "@/lib/scenarios";
 import type { CatalogItem, Design, Requirements } from "@/lib/types";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import { verifyPatch } from "@/lib/verify";
@@ -41,6 +42,32 @@ function codes(design: Design, requirements: Requirements): string[] {
 }
 
 describe("production rack simulation", () => {
+  it("turns a 6 kW production rack into an over-budget rack after a 30% utility cut", () => {
+    const { design, requirements } = realisticRack();
+    const result = applyChaosPreset(design, requirements, "power_cut");
+    expect(result.design.rack.powerBudgetW).toBe(4200);
+    expect(result.requirements.powerBudgetW).toBe(4200);
+    expect(codes(result.design, result.requirements)).toContain("POWER_BUDGET_EXCEEDED");
+    expect(design.rack.powerBudgetW).toBe(6000);
+  });
+
+  it("shows a real A/B failure when the B-side PDU goes out of service", () => {
+    const { design, requirements } = realisticRack();
+    const result = applyChaosPreset(design, requirements, "pdu_failure");
+    expect(result.design.placements.some((placement) => placement.id === "pdu-b")).toBe(false);
+    expect(codes(result.design, result.requirements)).toContain("REDUNDANCY_SINGLE_FEED");
+    expect(design.placements.some((placement) => placement.id === "pdu-b")).toBe(true);
+  });
+
+  it("makes a 25% CapEx cut visible without dropping required servers, ports, or storage", () => {
+    const { design, requirements } = realisticRack();
+    const result = applyChaosPreset(design, { ...requirements, budgetUsd: 30000 }, "capex_slash");
+    expect(result.requirements.budgetUsd).toBe(22500);
+    expect(result.design.placements).toEqual(design.placements);
+    expect(codes(result.design, result.requirements)).toContain("BUDGET_EXCEEDED");
+    expect(codes(result.design, result.requirements)).not.toContain("NETWORK_PORTS_INSUFFICIENT");
+  });
+
   it("accepts a physically plausible 42U rack with six servers, storage, switching and independent A/B PDUs", () => {
     const { design, requirements } = realisticRack();
     expect(validateDesign(design, requirements)).toEqual([]);

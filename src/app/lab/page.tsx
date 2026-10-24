@@ -31,6 +31,18 @@ interface AgentStat {
   avgLatencyMs: number;
 }
 
+interface RepairVerdict {
+  timestamp: string;
+  runId: string;
+  mubitRequestId: string | null;
+  round: number;
+  candidate: number;
+  suggestedRating: "Good" | "Bad";
+  reason: string;
+  hardBefore: number;
+  hardAfter: number;
+}
+
 interface ConfigResult {
   label: string;
   n?: number;
@@ -57,6 +69,7 @@ export default function LabPage() {
   const [lessonsCount, setLessonsCount] = useState(0);
   const [bench, setBench] = useState<BenchResults | null>(null);
   const [benchChecked, setBenchChecked] = useState(false);
+  const [repairVerdicts, setRepairVerdicts] = useState<RepairVerdict[]>([]);
 
   useEffect(() => {
     fetch("/api/calls")
@@ -74,6 +87,10 @@ export default function LabPage() {
         setBench(body.available ? body.results : null);
         setBenchChecked(true);
       });
+    fetch("/api/repair-verdicts", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((body: { verdicts?: RepairVerdict[] }) => setRepairVerdicts(body.verdicts ?? []))
+      .catch(() => {});
   }, []);
 
   const chartData = bench
@@ -189,6 +206,37 @@ export default function LabPage() {
             verified Repair patches saved to data/lessons.json and fed back into future
             RepairAgent calls. Local only — see MUBIT_NOTES.md for why.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Repair verdicts for Mubit Requests review</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            The deterministic verifier suggests Good or Bad for each proposal and keeps its Mubit request ID.
+            These are local verdicts. Mubit Requests offers manual Good/Bad ratings; its docs do not specify
+            an API or guarantee that ratings filter adapter examples. Match calls by time and request details.
+          </p>
+          <div className="max-h-64 overflow-auto">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>When</TableHead><TableHead>Suggested</TableHead><TableHead>Hard checks</TableHead>
+                <TableHead>Mubit request ID</TableHead><TableHead>Verifier reason</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {repairVerdicts.map((verdict, index) => <TableRow key={`${verdict.runId}-${verdict.round}-${verdict.candidate}-${index}`}>
+                  <TableCell className="whitespace-nowrap text-xs">{new Date(verdict.timestamp).toLocaleTimeString()}</TableCell>
+                  <TableCell className={verdict.suggestedRating === "Good" ? "text-[var(--ok)]" : "text-destructive"}>{verdict.suggestedRating}</TableCell>
+                  <TableCell className="font-mono text-xs">{verdict.hardBefore} → {verdict.hardAfter}</TableCell>
+                  <TableCell className="max-w-40 truncate font-mono text-[10px]" title={verdict.mubitRequestId ?? undefined}>{verdict.mubitRequestId ?? "Unavailable"}</TableCell>
+                  <TableCell className="max-w-64 truncate text-xs" title={verdict.reason}>{verdict.reason}</TableCell>
+                </TableRow>)}
+                {repairVerdicts.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-xs text-muted-foreground">No repair candidates verified yet.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

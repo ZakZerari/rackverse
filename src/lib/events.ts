@@ -9,6 +9,7 @@ import type { Design, Requirements, Violation } from "@/lib/types";
 export type RunEvent =
   | { type: "run:start"; runId: string }
   | { type: "agent:start"; agent: string; note: string }
+  | { type: "agent:retry"; agent: string; note: string }
   | { type: "agent:token"; agent: string; text: string }
   | {
       type: "agent:done";

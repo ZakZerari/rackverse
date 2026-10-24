@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Edges, OrbitControls } from "@react-three/drei";
-import type { Mesh, PerspectiveCamera } from "three";
+import { ContactShadows, Edges, OrbitControls } from "@react-three/drei";
+import { DoubleSide, type Mesh, type MeshBasicMaterial, type PerspectiveCamera } from "three";
 import { catalogItemFor } from "@/lib/catalog";
 import { useRackStore } from "@/lib/store";
 import type { Category, Design, Placement } from "@/lib/types";
@@ -41,26 +41,47 @@ function DeviceBox({
   const item = catalogItemFor(design, placement.catalogId);
   const meshRef = useRef<Mesh>(null);
 
-  // Violations pulse so a bad device is findable while orbiting.
-  useFrame(({ clock }) => {
-    if (!meshRef.current || !violated) return;
-    const material = meshRef.current.material as { emissiveIntensity?: number };
-    material.emissiveIntensity = 0.35 + Math.sin(clock.elapsedTime * 4) * 0.25;
+  const depth = item && item.heightU > 0 ? Math.max(item.depthMm * DEPTH_SCALE, 0.4) : 0;
+  const facing = placement.face === "front" ? 1 : -1;
+  const restZ = placement.face === "front" ? depth / 2 - 0.9 : 0.9 - depth / 2;
+
+  // Devices slide into the rack when they appear, staggered bottom-up, so a
+  // generated design reads as being racked rather than teleporting in. Driven
+  // by refs in useFrame — declarative animation would need another dependency
+  // for one effect.
+  const elapsed = useRef(0);
+  const slideDelay = Math.min(placement.startU * 0.02, 0.4);
+
+  useFrame(({ clock }, delta) => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+
+    elapsed.current += delta;
+    const t = Math.min(1, Math.max(0, (elapsed.current - slideDelay) / 0.5));
+    const eased = 1 - Math.pow(1 - t, 3);
+    mesh.position.z = restZ + (1 - eased) * 2.2 * facing;
+    mesh.scale.setScalar(0.9 + eased * 0.1);
+
+    const material = mesh.material as { emissiveIntensity?: number };
+    if (violated) {
+      // Violations pulse so a bad device is findable while orbiting.
+      material.emissiveIntensity = 0.35 + Math.sin(clock.elapsedTime * 4) * 0.25;
+    } else if (selected) {
+      material.emissiveIntensity = 0.32 + Math.sin(clock.elapsedTime * 2.2) * 0.14;
+    }
   });
 
   if (!item || item.heightU <= 0) return null;
 
-  const depth = Math.max(item.depthMm * DEPTH_SCALE, 0.4);
   const height = item.heightU * U_H * 0.94;
   // U1 sits at the bottom; centre the rack on the origin.
   const centerU = placement.startU + item.heightU / 2 - 0.5;
   const y = (centerU - rackHeightU / 2) * U_H;
-  const z = placement.face === "front" ? depth / 2 - 0.9 : 0.9 - depth / 2;
 
   return (
     <mesh
       ref={meshRef}
-      position={[0, y, z]}
+      position={[0, y, restZ]}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
@@ -131,6 +152,34 @@ function URulers({ heightU }: { heightU: number }) {
   );
 }
 
+/**
+ * A plane of light travelling up the rack while agents hold the design. Same
+ * job as the 2D scan line: there is no honest progress figure to show, so it
+ * says "busy" and nothing more.
+ */
+function ScanPlane({ heightU, active }: { heightU: number; active: boolean }) {
+  const ref = useRef<Mesh>(null);
+  const PERIOD = 2.4;
+
+  useFrame(({ clock }) => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const h = heightU * U_H;
+    const phase = (clock.elapsedTime % PERIOD) / PERIOD;
+    mesh.position.y = -h / 2 + phase * h;
+    (mesh.material as MeshBasicMaterial).opacity = 0.34 * Math.sin(phase * Math.PI);
+  });
+
+  if (!active) return null;
+
+  return (
+    <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[RACK_W + 1.4, 4]} />
+      <meshBasicMaterial color="#5aa9e6" transparent opacity={0} depthWrite={false} side={DoubleSide} />
+    </mesh>
+  );
+}
+
 /** Frames the whole rack regardless of its height — a 42U rack is ~18.7 scene
  *  units tall, far too big for a fixed camera distance. */
 function CameraRig({ heightU }: { heightU: number }) {
@@ -156,6 +205,7 @@ function CameraRig({ heightU }: { heightU: number }) {
 function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<string> }) {
   const selectedPlacementId = useRackStore((s) => s.selectedPlacementId);
   const selectPlacement = useRackStore((s) => s.selectPlacement);
+  const isRunning = useRackStore((s) => s.isRunning);
   const heightU = design.rack.heightU;
 
   return (
@@ -168,6 +218,7 @@ function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<strin
       <group onPointerMissed={() => selectPlacement(null)}>
         <RackFrame heightU={heightU} />
         <URulers heightU={heightU} />
+        <ScanPlane heightU={heightU} active={isRunning} />
         {design.placements.map((p) => (
           <DeviceBox
             key={p.id}
@@ -182,6 +233,15 @@ function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<strin
       </group>
 
       <gridHelper args={[26, 26, "#2a313c", "#1d232c"]} position={[0, -(heightU * U_H) / 2 - 0.3, 0]} />
+      {/* Grounds the rack on the floor plane — without it the whole thing
+          floats. Local renderer, no asset to fetch. */}
+      <ContactShadows
+        position={[0, -(heightU * U_H) / 2 - 0.28, 0]}
+        opacity={0.5}
+        scale={16}
+        blur={2.4}
+        far={4}
+      />
       <OrbitControls
         enablePan
         enableDamping
@@ -189,6 +249,10 @@ function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<strin
         minDistance={4}
         maxDistance={40}
         target={[0, 0, 0]}
+        // Turns under its own power only while the agents are working, so the
+        // motion means something instead of being ambient fidgeting.
+        autoRotate={isRunning}
+        autoRotateSpeed={0.6}
       />
     </>
   );

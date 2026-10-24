@@ -4,6 +4,7 @@ import { RACK_EDITOR_SYSTEM } from "@/lib/agents/editor";
 import { REPAIR_AGENT_SYSTEM } from "@/lib/agents/repair";
 import { REQUIREMENTS_AGENT_SYSTEM } from "@/lib/agents/requirements";
 import { ArchitectOutputSchema, PatchSchema, RequirementsSchema } from "@/lib/schemas";
+import { mubitResponseFormat } from "@/lib/llm";
 
 /**
  * Every agent in one place, because this file IS the Mubit task surface.
@@ -70,10 +71,8 @@ export const AGENTS: Record<AgentName, AgentDefinition> = {
 export const AGENT_LIST = Object.values(AGENTS);
 
 /**
- * Mubit normalises instructions before grouping: "Runs of spaces and line
- * breaks count as one space", and "Numbers, dates, times and IDs don't split
- * a task." Mirror that here so the fingerprint tracks what Mubit actually
- * compares rather than raw bytes.
+ * Mubit ignores whitespace differences in instructions. This local check is
+ * deliberately conservative: it also catches changes Mubit might normalize.
  */
 export function normaliseInstructions(instructions: string): string {
   return instructions.replace(/\s+/g, " ").trim();
@@ -109,6 +108,6 @@ export function taskFingerprint(definition: AgentDefinition, model: string): Tas
     model,
     taskName: normalised.split(" ").slice(0, 6).join(" "),
     instructionsHash: hash(normalised),
-    schemaHash: hash(JSON.stringify(z.toJSONSchema(definition.schema, { target: "draft-7" }))),
+    schemaHash: hash(JSON.stringify(mubitResponseFormat(definition.name, definition.schema))),
   };
 }

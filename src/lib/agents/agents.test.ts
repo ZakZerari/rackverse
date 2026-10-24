@@ -8,6 +8,7 @@ import { RACK_ARCHITECT_SYSTEM, runArchitect } from "@/lib/agents/architect";
 import { RACK_EDITOR_SYSTEM, runRackEditor } from "@/lib/agents/editor";
 import { REPAIR_AGENT_SYSTEM, runRepairAgent } from "@/lib/agents/repair";
 import { REQUIREMENTS_AGENT_SYSTEM, runRequirementsAgent } from "@/lib/agents/requirements";
+import { ArchitectOutputSchema, PatchSchema, RequirementsSchema } from "@/lib/schemas";
 
 const mockComplete = vi.mocked(complete);
 
@@ -37,6 +38,7 @@ describe("each agent's system prompt is a stable, constant string (so Mubit grou
     expect(systems[0]).toBe(REQUIREMENTS_AGENT_SYSTEM);
     expect(systems[1]).toBe(REQUIREMENTS_AGENT_SYSTEM);
     expect(systems[0]).toBe(systems[1]);
+    expect(mockComplete.mock.calls.every(([call]) => call.schema === RequirementsSchema)).toBe(true);
   });
 
   it("RackArchitect sends the exact same system prompt regardless of input", async () => {
@@ -46,6 +48,7 @@ describe("each agent's system prompt is a stable, constant string (so Mubit grou
     const systems = mockComplete.mock.calls.map((call) => call[0].system);
     expect(systems[0]).toBe(RACK_ARCHITECT_SYSTEM);
     expect(systems[1]).toBe(RACK_ARCHITECT_SYSTEM);
+    expect(mockComplete.mock.calls.every(([call]) => call.schema === ArchitectOutputSchema)).toBe(true);
   });
 
   it("RepairAgent sends the exact same system prompt regardless of input", async () => {
@@ -60,12 +63,14 @@ describe("each agent's system prompt is a stable, constant string (so Mubit grou
     const systems = mockComplete.mock.calls.map((call) => call[0].system);
     expect(systems[0]).toBe(REPAIR_AGENT_SYSTEM);
     expect(systems[1]).toBe(REPAIR_AGENT_SYSTEM);
+    expect(mockComplete.mock.calls.every(([call]) => call.schema === PatchSchema)).toBe(true);
   });
 
   it("RackEditor sends a stable prompt while user changes remain in the user message", async () => {
     await runRackEditor({ request: "add a server", history: [], requirements: requirements(), design: design() });
     await runRackEditor({ request: "make it cheaper", history: [], requirements: requirements(), design: design() });
     expect(mockComplete.mock.calls.map(([call]) => call.system)).toEqual([RACK_EDITOR_SYSTEM, RACK_EDITOR_SYSTEM]);
+    expect(mockComplete.mock.calls.every(([call]) => call.schema === PatchSchema)).toBe(true);
   });
 
   it("custom equipment is available to Architect and Repair without changing task instructions", async () => {

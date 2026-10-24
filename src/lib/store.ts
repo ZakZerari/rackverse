@@ -10,7 +10,7 @@ import {
 import type { RunEvent } from "@/lib/events";
 import type { RepairOnlyResult } from "@/lib/orchestrate";
 import { applyPatch } from "@/lib/patch";
-import { breakDesign } from "@/lib/scenarios";
+import { applyChaosPreset, type ChaosPreset } from "@/lib/scenarios";
 import type { CatalogItem, Design, Face, Patch, Rack, Requirements, Violation } from "@/lib/types";
 import { validateDesign } from "@/lib/validate";
 
@@ -93,7 +93,12 @@ interface RackStore {
   face: Face;
 
   violations: Violation[];
+  /** Placements in a HARD violation — the design is illegal as drawn. */
   violatedPlacementIds: Set<string>;
+  /** Placements only in SOFT violations: advisory, not a failure. Kept apart
+   *  because painting an advisory the same red as a breakage makes a working
+   *  rack look broken (POWER_HEADROOM_LOW tags every device in the rack). */
+  advisoryPlacementIds: Set<string>;
   revalidate: () => void;
 
   // The Copilot conversation, driven by streamed RunEvents.
@@ -122,7 +127,7 @@ interface RackStore {
   resetEquipment: (id: string) => void;
   loadSnapshot: (snapshot: { design: Design; requirements: Requirements; versions: Design[]; turns: Turn[] }) => void;
 
-  breakIt: () => void;
+  applyChaos: (preset: ChaosPreset) => void;
   pendingRepair: RepairOnlyResult | null;
   setPendingRepair: (result: RepairOnlyResult | null) => void;
   acceptPendingRepair: () => void;
@@ -137,6 +142,7 @@ export const useRackStore = create<RackStore>((set, get) => ({
   face: "front",
   violations: [],
   violatedPlacementIds: new Set(),
+  advisoryPlacementIds: new Set(),
 
   turns: [],
   isRunning: false,
@@ -145,9 +151,16 @@ export const useRackStore = create<RackStore>((set, get) => ({
   revalidate: () => {
     const { design, requirements } = get();
     const violations = validateDesign(design, requirements);
+    const hard = new Set(violations.filter((v) => v.severity === "hard").flatMap((v) => v.placementIds));
     set({
       violations,
-      violatedPlacementIds: new Set(violations.flatMap((v) => v.placementIds)),
+      violatedPlacementIds: hard,
+      advisoryPlacementIds: new Set(
+        violations
+          .filter((v) => v.severity === "soft")
+          .flatMap((v) => v.placementIds)
+          .filter((id) => !hard.has(id))
+      ),
     });
   },
 
@@ -201,6 +214,10 @@ export const useRackStore = create<RackStore>((set, get) => ({
         // Appended in full — this is what keeps an agent's reasoning on screen
         // after it finishes, instead of vanishing with the spinner.
         patchRunningAgent(event.agent, (item) => ({ ...item, output: item.output + event.text }));
+        break;
+
+      case "agent:retry":
+        patchRunningAgent(event.agent, (item) => ({ ...item, note: event.note, output: "" }));
         break;
 
       case "agent:done":
@@ -393,7 +410,11 @@ export const useRackStore = create<RackStore>((set, get) => ({
   loadSnapshot: (snapshot) => {
     set({
       design: snapshot.design, requirements: snapshot.requirements, versions: snapshot.versions,
-      turns: snapshot.turns, selectedPlacementId: null, face: "front",
+      turns: snapshot.turns.map((turn) => turn.status === "running" ? {
+        ...turn, status: "error" as const, error: "Interrupted by page refresh.",
+        items: turn.items.map((item) => item.kind === "agent" && item.status === "running"
+          ? { ...item, status: "error" as const, error: "Interrupted by page refresh." } : item),
+      } : turn), selectedPlacementId: null, face: "front",
       isRunning: false, runningAgent: null, pendingRepair: null,
     });
     get().revalidate();
@@ -402,10 +423,12 @@ export const useRackStore = create<RackStore>((set, get) => ({
   pendingRepair: null,
   setPendingRepair: (result) => set({ pendingRepair: result }),
 
-  breakIt: () => {
-    const { design, versions } = get();
-    const result = breakDesign(design);
-    const turn = newTurn("break", "Break it");
+  applyChaos: (preset) => {
+    const { design, requirements, versions } = get();
+    const result = applyChaosPreset(design, requirements, preset);
+    const turn = newTurn("break", {
+      power_cut: "Utility power cut", pdu_failure: "Failed B-side PDU", capex_slash: "CFO CapEx slash",
+    }[preset]);
     turn.status = "done";
     turn.items = [
       {
@@ -418,7 +441,8 @@ export const useRackStore = create<RackStore>((set, get) => ({
     ];
     set({
       design: result.design,
-      versions: [...versions, result.design],
+      requirements: result.requirements,
+      versions: result.design === design ? versions : [...versions, result.design],
       turns: [...get().turns, turn],
     });
     get().revalidate();

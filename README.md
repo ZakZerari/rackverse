@@ -25,6 +25,8 @@ The main page is a fleet dashboard: create racks, review each rack's engineering
 
 In the Studio, **Rack settings** changes height, mounting depth, load rating and power budget. **Add equipment** creates a device with editable type, price, dimensions, weight, power, supply capacity, outlets, PSUs and network ports. Built-in devices can be edited and reset to their source specs. Edits update the checks, totals, views and AI catalog. On smaller screens, use the Equipment, Rack and Copilot tabs.
 
+The **Break it** selector simulates a 30% utility power cut, a failed B-side PDU, or a 25% CapEx cut. Each change updates the saved rack or its requirements and immediately reruns deterministic checks. The Studio telemetry bar summarizes completed, rack-scoped repair runs: first-round pass rate, average rounds, and end-to-end duration. Dollar cost and adapter comparisons remain blank until verified pricing and Mubit evaluation data are available. Fleet snapshots already persist per rack in local storage and flush on page exit, including design versions and conversation history.
+
 ## Architecture
 
 ```
@@ -82,6 +84,8 @@ Prompt → rendered, validated rack in **~4-6s**; Break → Repair → Verify in
 ## Honesty
 
 Local metrics (the benchmark on `/lab`, call logs, lessons learned) are reported as local metrics. Nothing is claimed as a Mubit adapter result unless it's been verified in the Mubit console's "Try models".
+
+Production agent traffic uses one pinned Gemini model and a stable request format so calls for different racks build the same four Mubit tasks. The `pick-model` diagnostic opts out of Mubit recording. Temporary provider 503s are retried with progress shown in the Copilot; a final failure is shown plainly. See [MUBIT_NOTES.md](./MUBIT_NOTES.md) for the task audit and [TESTING.md](./TESTING.md) for verification.
 
 The fleet dashboard shows Mubit-routed provider calls, schema-valid replies, call latency, and rack runs that finished with zero hard design issues. New call records capture Mubit's `x-middleware-request-id`, so the dashboard can count gateway-confirmed responses. Existing records without that header still count as local call history. Adapter comparisons are a separate console workflow; the app does not label provider calls as adapter inference.
 

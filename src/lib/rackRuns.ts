@@ -23,6 +23,9 @@ export interface RackRunRecord {
   initialHardCount?: number;
   finalHardCount?: number;
   acceptedPatch?: boolean;
+  repairRounds?: number;
+  firstRoundPassed?: boolean;
+  durationMs?: number;
 }
 
 /** Server-side evidence of deterministic outcomes after Mubit-backed agent calls. */
@@ -53,6 +56,10 @@ export interface RackModelMetrics {
   verifiedRuns: number;
   lastRun: RackRunRecord | null;
   agents: Record<string, number>;
+  repairRuns: number;
+  firstRoundPassRatePct: number | null;
+  averageRepairRounds: number | null;
+  averageRepairDurationMs: number | null;
 }
 
 export function rackMetrics(ids: string[], calls: CallLogEntry[], runs: RackRunRecord[]): Record<string, RackModelMetrics> {
@@ -65,6 +72,9 @@ export function rackMetrics(ids: string[], calls: CallLogEntry[], runs: RackRunR
     const recentRuns = [...ownRuns].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     const agents: Record<string, number> = {};
     for (const call of ownCalls) agents[call.agent] = (agents[call.agent] ?? 0) + 1;
+    const measuredRepairs = ownRuns.filter((run) => run.kind === "repair" && run.status === "completed" &&
+      run.initialHardCount !== undefined && run.initialHardCount > 0 && run.repairRounds !== undefined);
+    const timedRepairs = measuredRepairs.filter((run) => run.durationMs !== undefined);
     result[id] = {
       calls: ownCalls.length,
       successfulCalls: successful.length,
@@ -77,6 +87,13 @@ export function rackMetrics(ids: string[], calls: CallLogEntry[], runs: RackRunR
       verifiedRuns: ownRuns.filter((run) => run.status === "completed" && run.finalHardCount === 0).length,
       lastRun: recentRuns[0] ?? null,
       agents,
+      repairRuns: measuredRepairs.length,
+      firstRoundPassRatePct: measuredRepairs.length
+        ? Math.round(100 * measuredRepairs.filter((run) => run.firstRoundPassed).length / measuredRepairs.length) : null,
+      averageRepairRounds: measuredRepairs.length
+        ? Math.round(10 * measuredRepairs.reduce((total, run) => total + (run.repairRounds ?? 0), 0) / measuredRepairs.length) / 10 : null,
+      averageRepairDurationMs: timedRepairs.length
+        ? Math.round(timedRepairs.reduce((total, run) => total + (run.durationMs ?? 0), 0) / timedRepairs.length) : null,
     };
   }
   return result;

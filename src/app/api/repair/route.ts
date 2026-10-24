@@ -41,6 +41,7 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const startedAt = Date.now();
       let closed = false;
       const send = (event: RunEvent) => {
         if (closed) return;
@@ -60,10 +61,19 @@ export async function POST(request: Request) {
             if (event.type !== "design:update") send(event);
           },
         });
-        if (rackId && runId) recordRackRun({ rackId, runId, kind: "repair", timestamp: new Date().toISOString(),
-          status: "completed", initialHardCount: hardViolations(validateDesign(design, requirements)).length,
-          finalHardCount: hardViolations(validateDesign(result.design, requirements)).length,
-          acceptedPatch: result.design !== design });
+        if (rackId && runId) {
+          const initialHardCount = hardViolations(validateDesign(design, requirements)).length;
+          const finalHardCount = hardViolations(validateDesign(result.design, requirements)).length;
+          const repairRounds = Math.max(0, ...result.trace.flatMap((step) => {
+            const match = /^RepairAgent \(round (\d+), candidate \d+\)$/.exec(step.label);
+            return match ? [Number(match[1])] : [];
+          }));
+          recordRackRun({ rackId, runId, kind: "repair", timestamp: new Date().toISOString(),
+            status: "completed", initialHardCount, finalHardCount,
+            acceptedPatch: result.design !== design, repairRounds,
+            firstRoundPassed: initialHardCount > 0 && finalHardCount === 0 && repairRounds === 1,
+            durationMs: Date.now() - startedAt });
+        }
         send({
           type: "repair:proposed",
           design: result.design,
@@ -71,7 +81,8 @@ export async function POST(request: Request) {
           reason: result.trace.at(-1)?.detail ?? "No change proposed.",
         });
       } catch (err) {
-        if (rackId && runId) recordRackRun({ rackId, runId, kind: "repair", timestamp: new Date().toISOString(), status: "error" });
+        if (rackId && runId) recordRackRun({ rackId, runId, kind: "repair", timestamp: new Date().toISOString(),
+          status: "error", durationMs: Date.now() - startedAt });
         send({ type: "run:error", error: err instanceof Error ? err.message : String(err) });
       } finally {
         closed = true;

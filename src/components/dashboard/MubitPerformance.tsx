@@ -73,7 +73,7 @@ export function RackMubitSummary({ metrics }: { metrics?: RackModelMetrics }) {
   return <div className="mt-4 rounded-lg border border-border bg-background/50 px-3 py-2.5">
     <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-1.5 text-[10px] font-semibold"><Cpu className="size-3 text-primary" /> Model checks</span><span className="text-[9px] text-muted-foreground">Provider via Mubit</span></div>
     {calls ? <>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] tabular-nums"><span>{valid}/{calls} valid replies</span><span>{verified}/{runs} verified runs</span><span>{time(metrics?.averageLatencyMs ?? null)} avg valid reply</span></div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] tabular-nums"><span>{valid}/{calls} valid replies</span><span>{verified}/{runs} verified runs</span><span>{time(metrics?.averageLatencyMs ?? null)} avg valid reply</span>{(metrics?.repairRuns ?? 0) > 0 && <span>{metrics?.firstRoundPassRatePct}% first-round repair · n={metrics?.repairRuns}</span>}</div>
       {metrics?.lastRun && <div className="mt-2 flex items-center gap-1 border-t border-border/70 pt-2 text-[10px] text-muted-foreground">{metrics.lastRun.status === "completed" && metrics.lastRun.finalHardCount === 0 ? <CheckCircle2 className="size-3 text-[var(--ok)]" /> : <XCircle className="size-3 text-destructive" />}Last {metrics.lastRun.kind}: {metrics.lastRun.status === "error" ? "request failed" : `${metrics.lastRun.finalHardCount ?? "?"} hard issues left`}</div>}
     </> : <p className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground"><CircleHelp className="size-3" /> No agent calls recorded</p>}
   </div>;

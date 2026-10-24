@@ -26,7 +26,7 @@ describe("rack-scoped repair route", () => {
   it("records before and after checks for a verified repair proposal", async () => {
     const fixed: Design = { ...broken, placements: [], version: 2 };
     vi.mocked(repairOnly).mockResolvedValue({ design: fixed, trace: [
-      { id: "repair", label: "RepairAgent", detail: "Removed unknown device", ok: true },
+      { id: "repair", label: "RepairAgent (round 1, candidate 1)", detail: "Removed unknown device", ok: true },
     ] });
     const response = await POST(new Request("http://localhost/api/repair", { method: "POST",
       body: JSON.stringify({ rackId: "rack-a", design: broken, requirements }) }));
@@ -34,6 +34,7 @@ describe("rack-scoped repair route", () => {
     expect(output).toContain("repair:proposed");
     expect(vi.mocked(repairOnly).mock.calls[0][2]).toMatchObject({ runId: "rack:rack-a:repair-test" });
     expect(recordRackRun).toHaveBeenCalledWith(expect.objectContaining({ rackId: "rack-a", kind: "repair",
-      initialHardCount: 1, finalHardCount: 0, acceptedPatch: true }));
+      initialHardCount: 1, finalHardCount: 0, acceptedPatch: true,
+      repairRounds: 1, firstRoundPassed: true, durationMs: expect.any(Number) }));
   });
 });

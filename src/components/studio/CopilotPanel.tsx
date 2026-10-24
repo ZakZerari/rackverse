@@ -163,30 +163,70 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
 }
 
 function TurnBlock({ turn }: { turn: Turn }) {
+  const running = turn.status === "running";
+
   return (
-    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+      className="space-y-2"
+    >
       <div className="flex justify-end">
-        <p className="max-w-[90%] rounded-lg rounded-br-sm bg-secondary px-2.5 py-1.5 text-[11px] text-secondary-foreground">
+        <motion.p
+          initial={{ opacity: 0, scale: 0.96, x: 8 }}
+          animate={{ opacity: 1, scale: 1, x: 0 }}
+          transition={{ type: "spring", stiffness: 520, damping: 32 }}
+          className="max-w-[90%] rounded-lg rounded-br-sm bg-secondary px-2.5 py-1.5 text-[11px] text-secondary-foreground"
+        >
           {turn.prompt}
-        </p>
+        </motion.p>
       </div>
 
-      <div className="space-y-1.5 rounded-lg rounded-bl-sm border border-border bg-card/60 p-2">
+      <motion.div
+        layout="position"
+        className={`space-y-1.5 rounded-lg rounded-bl-sm border bg-card/60 p-2 transition-colors ${
+          running ? "border-primary/45" : "border-border"
+        }`}
+      >
         <AnimatePresence initial={false}>
           {turn.items.map((item) => (
             <TimelineRow key={item.id} item={item} />
           ))}
         </AnimatePresence>
 
-        {turn.status === "running" && turn.items.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">Starting…</p>
-        )}
+        {running && turn.items.length === 0 && <ThinkingDots />}
+
         {turn.summary && (
-          <p className="border-t border-border/60 pt-1.5 text-[11px] font-medium text-foreground">{turn.summary}</p>
+          <motion.p
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="border-t border-border/60 pt-1.5 text-[11px] font-medium text-foreground"
+          >
+            {turn.summary}
+          </motion.p>
         )}
         {turn.error && <p className="text-[11px] text-destructive">{turn.error}</p>}
-      </div>
+      </motion.div>
     </motion.div>
+  );
+}
+
+/** Placeholder for the gap between sending and the first agent reporting in. */
+function ThinkingDots() {
+  return (
+    <div className="flex items-center gap-1.5 py-0.5">
+      {[0, 1, 2].map((i) => (
+        <motion.span
+          key={i}
+          className="size-1 rounded-full bg-muted-foreground"
+          animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
+          transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.16, ease: "easeInOut" }}
+        />
+      ))}
+      <span className="ml-1 text-[11px] text-muted-foreground">Routing to an agent…</span>
+    </div>
   );
 }
 
@@ -234,16 +274,19 @@ function TimelineRow({ item }: { item: TimelineItem }) {
   }
 
   // Agent step — its reasoning stays here permanently once the run finishes.
+  const running = item.status === "running";
   const detail =
     item.status === "error"
       ? (item.error ?? "Failed.")
-      : (item.rationale ?? (item.status === "running" ? item.note : "Responded."));
+      : (item.rationale ?? (running ? item.note : "Responded."));
 
   return (
     <Row
-      dot={item.status === "running" ? "run" : item.status === "ok" ? "ok" : "bad"}
+      dot={running ? "run" : item.status === "ok" ? "ok" : "bad"}
       label={item.agent}
+      accent={AGENT_ACCENT[item.agent]}
       detail={detail}
+      detailClassName={running ? "thinking-text" : undefined}
       meta={
         item.latencyMs !== undefined
           ? `${(item.latencyMs / 1000).toFixed(1)}s${item.tokens ? ` · ${item.tokens}tok` : ""}`
@@ -258,13 +301,22 @@ function TimelineRow({ item }: { item: TimelineItem }) {
           >
             {open ? "hide raw output" : `raw output (${item.output.length} chars)`}
           </button>
-          {open && (
-            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/60 p-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
-              {item.output}
-            </pre>
-          )}
-          {item.status === "running" && !open && (
-            <pre className="mt-1 max-h-16 overflow-hidden whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed text-muted-foreground/70">
+          <AnimatePresence initial={false}>
+            {open && (
+              <motion.pre
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/60 p-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground"
+              >
+                {item.output}
+              </motion.pre>
+            )}
+          </AnimatePresence>
+          {running && !open && (
+            // Tail of the live stream with a caret, so a long call visibly
+            // produces something rather than just spinning.
+            <pre className="stream-caret mt-1 max-h-16 overflow-hidden whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed text-muted-foreground/70">
               {item.output.slice(-200)}
             </pre>
           )}
@@ -274,35 +326,55 @@ function TimelineRow({ item }: { item: TimelineItem }) {
   );
 }
 
+/** One colour per agent, so a long thread is scannable by eye. */
+const AGENT_ACCENT: Record<string, string> = {
+  RequirementsAgent: "var(--chart-2)",
+  RackArchitect: "var(--chart-1)",
+  RackEditor: "var(--chart-5)",
+  RepairAgent: "var(--chart-4)",
+};
+
 function Row({
   dot,
   label,
   detail,
+  detailClassName,
+  accent,
   meta,
   children,
 }: {
   dot: "ok" | "bad" | "run";
   label: string;
   detail: string;
+  detailClassName?: string;
+  accent?: string;
   meta?: string;
   children?: React.ReactNode;
 }) {
-  const dotClass =
-    dot === "ok"
-      ? "bg-[var(--ok)]"
-      : dot === "bad"
-        ? "bg-[var(--warn)]"
-        : "bg-primary animate-pulse";
+  const colour =
+    dot === "run" ? "var(--primary)" : dot === "ok" ? (accent ?? "var(--ok)") : "var(--warn)";
 
   return (
-    <motion.div initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} className="flex gap-2">
-      <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${dotClass}`} />
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ type: "spring", stiffness: 500, damping: 36 }}
+      className="flex gap-2"
+    >
+      <span className="relative mt-1.5 flex size-1.5 shrink-0">
+        {dot === "run" && (
+          <span className="ping-ring absolute inset-0 rounded-full" style={{ backgroundColor: colour }} />
+        )}
+        <span className="relative size-1.5 rounded-full" style={{ backgroundColor: colour }} />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[11px] font-medium text-foreground">{label}</span>
           {meta && <span className="shrink-0 font-mono text-[10px] tabular text-muted-foreground">{meta}</span>}
         </div>
-        <p className="text-[11px] leading-snug text-muted-foreground">{detail}</p>
+        <p className={`text-[11px] leading-snug text-muted-foreground ${detailClassName ?? ""}`}>{detail}</p>
         {children}
       </div>
     </motion.div>

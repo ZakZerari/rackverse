@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { isTransientError, retryAfterMs, toGeminiJsonSchema } from "@/lib/llm";
+import { getMubitModel, isTransientError, MUBIT_TASK_MODEL, retryAfterMs, toGeminiJsonSchema, userFacingModelError } from "@/lib/llm";
 import { PatchSchema } from "@/lib/schemas";
 
 describe("retryAfterMs", () => {
@@ -21,6 +21,11 @@ describe("retryAfterMs", () => {
   it("returns null when the error says nothing about waiting", () => {
     expect(retryAfterMs(new Error("Invalid JSON"))).toBeNull();
   });
+
+  it("uses the gateway Retry-After header when present", () => {
+    const error = Object.assign(new Error("503 busy"), { headers: new Headers({ "retry-after": "7" }) });
+    expect(retryAfterMs(error)).toBe(7000);
+  });
 });
 
 describe("isTransientError", () => {
@@ -32,6 +37,7 @@ describe("isTransientError", () => {
     }
     expect(isTransientError(new Error("fetch failed"))).toBe(true);
     expect(isTransientError(new Error("socket hang up"))).toBe(true);
+    expect(isTransientError({ status: 503, headers: new Headers({ "x-should-retry": "false" }) })).toBe(false);
   });
 
   it("treats client and schema errors as permanent — those need a new prompt, not patience", () => {
@@ -40,6 +46,26 @@ describe("isTransientError", () => {
     }
     expect(isTransientError(new Error("Invalid JSON"))).toBe(false);
     expect(isTransientError(new z.ZodError([]))).toBe(false);
+  });
+});
+
+describe("production task stability", () => {
+  it("refuses a model setting that would create another task for each agent", () => {
+    const prior = process.env.MUBIT_MODEL;
+    try {
+      process.env.MUBIT_MODEL = MUBIT_TASK_MODEL;
+      expect(getMubitModel()).toBe(MUBIT_TASK_MODEL);
+      process.env.MUBIT_MODEL = "gemini-3.8-flash";
+      expect(getMubitModel).toThrow(/split agent training tasks/);
+    } finally {
+      if (prior === undefined) delete process.env.MUBIT_MODEL;
+      else process.env.MUBIT_MODEL = prior;
+    }
+  });
+
+  it("turns provider capacity errors into actionable UI text", () => {
+    expect(userFacingModelError({ status: 503 })).toMatch(/temporarily busy/);
+    expect(userFacingModelError({ status: 429 })).toMatch(/request limit/);
   });
 });
 

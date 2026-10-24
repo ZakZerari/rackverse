@@ -8,7 +8,9 @@ import { useRackStore } from "@/lib/store";
 import type { Category, Placement } from "@/lib/types";
 import { Rack3D } from "@/components/studio/Rack3D";
 
-const U_PX = 22;
+const U_PX = 24;
+/** Width of the rail strip either side of the cavity, in px. */
+const RAIL_PX = 11;
 
 const CATEGORY_ACCENT: Record<Category, string> = {
   server: "var(--chart-1)",
@@ -20,33 +22,72 @@ const CATEGORY_ACCENT: Record<Category, string> = {
   blank: "var(--border)",
 };
 
-function RowSlot({ startU }: { startU: number }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `slot:${startU}`, data: { type: "slot", startU } });
-  const major = startU % 5 === 0;
+/** Which categories get a perforated faceplate. Passive panels don't vent. */
+const VENTED: Record<Category, boolean> = {
+  server: true,
+  switch: true,
+  storage: true,
+  ups: true,
+  pdu: false,
+  patch: false,
+  blank: false,
+};
 
+function UScale({ heightU }: { heightU: number }) {
+  const rows = useMemo(() => Array.from({ length: heightU }, (_, i) => heightU - i), [heightU]);
   return (
-    <div
-      ref={setNodeRef}
-      className={`relative flex items-center transition-colors ${isOver ? "bg-primary/20" : ""}`}
-      style={{ height: U_PX }}
-    >
-      <div
-        className={`w-9 shrink-0 pr-2 text-right font-mono text-[10px] tabular ${
-          major ? "text-muted-foreground" : "text-muted-foreground/35"
-        }`}
-      >
-        {major || startU === 1 ? startU : ""}
-      </div>
-      <div
-        className={`h-full flex-1 border-t border-dashed ${
-          major ? "border-border" : "border-border/35"
-        }`}
-      />
+    <div className="shrink-0 select-none pr-1.5" style={{ width: 26 }}>
+      {rows.map((u) => (
+        <div
+          key={u}
+          className={`flex items-center justify-end font-mono text-[9px] tabular leading-none ${
+            u % 5 === 0 || u === 1 ? "text-muted-foreground" : "text-transparent"
+          }`}
+          style={{ height: U_PX }}
+        >
+          {u}
+        </div>
+      ))}
     </div>
   );
 }
 
-function PlacementBlock({ placement, violated }: { placement: Placement; violated: boolean }) {
+/** One droppable rack unit. Invisible until something is dragged over it. */
+function DropZone({ startU, heightU }: { startU: number; heightU: number }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `slot:${startU}`, data: { type: "slot", startU } });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`absolute inset-x-0 transition-colors duration-150 ${
+        isOver ? "bg-primary/25 shadow-[inset_0_0_0_1px_var(--primary)]" : ""
+      }`}
+      style={{ top: (heightU - startU) * U_PX, height: U_PX }}
+    />
+  );
+}
+
+function StatusLeds({ violated, compact }: { violated: boolean; compact: boolean }) {
+  if (compact) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-1 pr-0.5">
+      <span
+        className="size-[3px] rounded-full led-blink"
+        style={{ backgroundColor: violated ? "var(--destructive)" : "var(--ok)" }}
+      />
+      <span className="size-[3px] rounded-full bg-[var(--chart-4)]/70" />
+    </span>
+  );
+}
+
+function PlacementBlock({
+  placement,
+  violated,
+  advisory,
+}: {
+  placement: Placement;
+  violated: boolean;
+  advisory: boolean;
+}) {
   const design = useRackStore((s) => s.design);
   const item = catalogItemFor(design, placement.catalogId);
   const rackHeightU = useRackStore((s) => s.design.rack.heightU);
@@ -61,56 +102,89 @@ function PlacementBlock({ placement, violated }: { placement: Placement; violate
 
   const topU = rackHeightU - (placement.startU + item.heightU - 1);
   const selected = selectedPlacementId === placement.id;
-  const height = item.heightU * U_PX - 3;
+  const height = item.heightU * U_PX - 2;
+  const compact = height < 20;
+  const accent = violated ? "var(--destructive)" : CATEGORY_ACCENT[item.category];
 
   return (
     <motion.div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      // Slide in from the right as the Architect places each device; a tiny
-      // per-U stagger makes a generated rack read as "being assembled".
-      initial={{ opacity: 0, x: 24 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -16 }}
+      // Slides in from the front of the rack as the Architect racks it, with a
+      // small per-U stagger so a generated design reads as being assembled
+      // bottom-up rather than appearing all at once.
+      initial={{ opacity: 0, x: 26, scaleY: 0.82 }}
+      animate={{ opacity: 1, x: 0, scaleY: 1 }}
+      exit={{ opacity: 0, x: -18, scaleY: 0.85 }}
       transition={{
         type: "spring",
-        stiffness: 420,
-        damping: 34,
-        delay: isDragging ? 0 : Math.min(placement.startU * 0.015, 0.3),
+        stiffness: 430,
+        damping: 32,
+        delay: isDragging ? 0 : Math.min(placement.startU * 0.014, 0.28),
       }}
       onClick={(e) => {
         e.stopPropagation();
         selectPlacement(placement.id);
       }}
-      className={`group absolute left-9 right-0 flex cursor-grab items-center gap-2 overflow-hidden rounded-[3px] border bg-card pl-0 pr-2 text-[11px] shadow-sm active:cursor-grabbing ${
+      className={`group absolute inset-x-0 flex cursor-grab items-stretch overflow-hidden rounded-[2px] border text-[11px] active:cursor-grabbing device-face ${
         violated
           ? "border-destructive/70 ring-1 ring-destructive/40"
           : selected
-            ? "border-primary ring-1 ring-primary/50"
-            : "border-border hover:border-muted-foreground/50"
+            ? "border-primary ring-1 ring-primary/60"
+            : advisory
+              ? // Soft finding: worth noticing, not a failure. Amber hairline,
+                // no ring — a warning shouldn't look like a breakage.
+                "border-[var(--warn)]/45"
+              : "border-black/60 hover:border-muted-foreground/60"
       } ${isDragging ? "opacity-40" : ""}`}
       style={{
         top: topU * U_PX + 1,
         height,
+        backgroundColor: "var(--card)",
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         zIndex: isDragging ? 50 : selected ? 20 : 10,
       }}
-      title={`${item.name} — U${placement.startU}${item.heightU > 1 ? `-U${placement.startU + item.heightU - 1}` : ""}`}
+      title={`${item.manufacturer} ${item.name} — U${placement.startU}${
+        item.heightU > 1 ? `-U${placement.startU + item.heightU - 1}` : ""
+      }`}
     >
+      {/* Mounting ear, screws and all. */}
+      <span className="device-ear w-[7px] shrink-0 border-r border-black/40 bg-black/20" />
+      <span className="w-[3px] shrink-0" style={{ backgroundColor: accent }} />
+
       <span
-        className="h-full w-1 shrink-0"
-        style={{ backgroundColor: violated ? "var(--destructive)" : CATEGORY_ACCENT[item.category] }}
-      />
-      <span className="min-w-0 flex-1 truncate pl-1 font-medium text-foreground">{item.name}</span>
-      {height >= 20 && (
-        <span className="hidden shrink-0 font-mono text-[10px] tabular text-muted-foreground sm:inline">
-          {item.powerW > 0 ? `${item.powerW}W` : ""}
+        className={`relative flex min-w-0 flex-1 items-center gap-2 px-2 ${
+          VENTED[item.category] ? "device-vents" : ""
+        }`}
+      >
+        <span className="relative min-w-0 flex-1 truncate font-medium text-foreground">
+          {!compact && <span className="text-muted-foreground">{item.manufacturer} </span>}
+          {item.name}
         </span>
-      )}
-      <span className="shrink-0 rounded-sm bg-muted px-1 font-mono text-[10px] tabular text-muted-foreground">
-        {item.heightU}U
+        {!compact && item.powerW > 0 && (
+          <span className="relative hidden shrink-0 font-mono text-[10px] tabular text-muted-foreground sm:inline">
+            {item.powerW}W
+          </span>
+        )}
+        <StatusLeds violated={violated} compact={compact} />
+        <span className="relative shrink-0 rounded-[2px] bg-black/30 px-1 font-mono text-[9px] tabular text-muted-foreground">
+          {item.heightU}U
+        </span>
       </span>
+
+      <span className="device-ear w-[7px] shrink-0 border-l border-black/40 bg-black/20" />
+
+      {/* One-shot flash on arrival, so a device the agents just racked is
+          obvious in a rack that's otherwise already full. */}
+      <motion.span
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ backgroundColor: accent }}
+        initial={{ opacity: 0.4 }}
+        animate={{ opacity: 0 }}
+        transition={{ duration: 1.1, ease: "easeOut", delay: Math.min(placement.startU * 0.014, 0.28) }}
+      />
     </motion.div>
   );
 }
@@ -133,10 +207,15 @@ function ZeroUChip({ placement }: { placement: Placement }) {
   const nextFeed = placement.feed === undefined ? "A" : placement.feed === "A" ? "B" : undefined;
 
   return (
-    <button
+    <motion.button
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 500, damping: 34 }}
       onClick={(e) => {
         e.stopPropagation();
         selectPlacement(placement.id);
@@ -145,16 +224,20 @@ function ZeroUChip({ placement }: { placement: Placement }) {
         e.stopPropagation();
         setFeed(placement.id, nextFeed);
       }}
-      className={`flex items-center gap-1.5 rounded-[3px] border bg-card px-2 py-1 text-[11px] transition-colors ${
+      className={`device-face flex items-center gap-1.5 rounded-[3px] border px-2 py-1 text-[11px] transition-colors ${
         violated
           ? "border-destructive/70"
           : selected
             ? "border-primary ring-1 ring-primary/50"
-            : "border-border hover:border-muted-foreground/50"
+            : "border-black/50 hover:border-muted-foreground/50"
       } ${isDragging ? "opacity-40" : ""}`}
+      style={{ backgroundColor: "var(--card)" }}
       title={`${item.name} — double-click to cycle power feed (currently ${placement.feed ?? "unassigned"})`}
     >
-      <span className="size-1.5 rounded-full" style={{ backgroundColor: CATEGORY_ACCENT[item.category] }} />
+      <span
+        className="size-1.5 rounded-full led-blink"
+        style={{ backgroundColor: violated ? "var(--destructive)" : CATEGORY_ACCENT[item.category] }}
+      />
       <span className="truncate">{item.name}</span>
       <span
         className={`rounded-sm px-1 font-mono text-[10px] ${
@@ -163,7 +246,7 @@ function ZeroUChip({ placement }: { placement: Placement }) {
       >
         {placement.feed ? `FEED ${placement.feed}` : "NO FEED"}
       </span>
-    </button>
+    </motion.button>
   );
 }
 
@@ -189,9 +272,11 @@ function ZeroUTray() {
         0U side-mount · {face}
       </p>
       <div className="flex flex-wrap gap-1.5">
-        {zeroU.map((p) => (
-          <ZeroUChip key={p.id} placement={p} />
-        ))}
+        <AnimatePresence initial={false}>
+          {zeroU.map((p) => (
+            <ZeroUChip key={p.id} placement={p} />
+          ))}
+        </AnimatePresence>
         {zeroU.length === 0 && (
           <p className="text-[11px] text-muted-foreground/70">Drop PDUs here — they don&apos;t consume rack units.</p>
         )}
@@ -206,12 +291,12 @@ export function RackElevation() {
   const setFace = useRackStore((s) => s.setFace);
   const selectPlacement = useRackStore((s) => s.selectPlacement);
   const violatedIds = useRackStore((s) => s.violatedPlacementIds);
+  const advisoryIds = useRackStore((s) => s.advisoryPlacementIds);
+  const isRunning = useRackStore((s) => s.isRunning);
+  const runningAgent = useRackStore((s) => s.runningAgent);
 
   const [view, setView] = useState<"2d" | "3d">("2d");
-  const rows = useMemo(
-    () => Array.from({ length: design.rack.heightU }, (_, i) => design.rack.heightU - i),
-    [design.rack.heightU]
-  );
+  const heightU = design.rack.heightU;
   const facePlacements = design.placements.filter((p) => p.face === face);
 
   // Racks fill bottom-up, so a freshly generated design is off-screen at the
@@ -229,9 +314,9 @@ export function RackElevation() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || topmostUsedU === 0) return;
-    const topOfEquipmentPx = (design.rack.heightU - topmostUsedU) * U_PX;
+    const topOfEquipmentPx = (heightU - topmostUsedU) * U_PX;
     el.scrollTop = Math.max(0, topOfEquipmentPx - U_PX * 2);
-  }, [topmostUsedU, design.rack.heightU]);
+  }, [topmostUsedU, heightU]);
 
   return (
     <section className="flex min-h-0 flex-col">
@@ -239,8 +324,24 @@ export function RackElevation() {
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-xs font-semibold">{design.rack.name}</h2>
           <span className="font-mono text-[10px] tabular text-muted-foreground">
-            {design.rack.heightU}U · {design.rack.mountingDepthMm}mm · v{design.version}
+            {heightU}U · {design.rack.mountingDepthMm}mm · v{design.version}
           </span>
+          <AnimatePresence>
+            {isRunning && (
+              <motion.span
+                initial={{ opacity: 0, y: -3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-primary"
+              >
+                <span className="relative flex size-1.5">
+                  <span className="ping-ring absolute inset-0 rounded-full bg-primary" />
+                  <span className="relative size-1.5 rounded-full bg-primary" />
+                </span>
+                {runningAgent ?? "working"}
+              </motion.span>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
@@ -271,19 +372,62 @@ export function RackElevation() {
         </div>
       ) : (
         <div ref={scrollRef} className="scroll-region flex-1 p-4" onClick={() => selectPlacement(null)}>
-          <div className="mx-auto" style={{ maxWidth: 380 }}>
-            <div className="relative rounded-md border border-border bg-panel/60 p-1.5">
-              <div className="relative" style={{ height: design.rack.heightU * U_PX }}>
-                {rows.map((u) => (
-                  <RowSlot key={u} startU={u} />
-                ))}
-                <AnimatePresence initial={false}>
-                  {facePlacements.map((p) => (
-                    <PlacementBlock key={p.id} placement={p} violated={violatedIds.has(p.id)} />
-                  ))}
-                </AnimatePresence>
+          <div className="mx-auto" style={{ maxWidth: 420, ["--u-px" as string]: `${U_PX}px` }}>
+            <div
+              className={`rack-shell rounded-md border border-black/60 p-1 transition-shadow ${
+                isRunning ? "work-glow" : ""
+              }`}
+            >
+              {/* Top cap — vented, with the rack's own label, like a real one. */}
+              <div className="device-vents relative mb-1 flex h-4 items-center justify-center rounded-[2px] border border-black/50 bg-black/25">
+                <span className="relative font-mono text-[8px] uppercase tracking-[0.2em] text-muted-foreground/70">
+                  {design.rack.name}
+                </span>
               </div>
+
+              <div className="flex">
+                <UScale heightU={heightU} />
+
+                <div className="flex flex-1 overflow-hidden rounded-[2px]">
+                  <div className="rack-rail shrink-0" style={{ width: RAIL_PX }} />
+
+                  <div
+                    className="rack-cavity rack-u-guides relative flex-1 overflow-hidden"
+                    style={{ height: heightU * U_PX }}
+                  >
+                    {Array.from({ length: heightU }, (_, i) => i + 1).map((u) => (
+                      <DropZone key={u} startU={u} heightU={heightU} />
+                    ))}
+
+                    <AnimatePresence initial={false}>
+                      {facePlacements.map((p) => (
+                        <PlacementBlock
+                          key={p.id}
+                          placement={p}
+                          violated={violatedIds.has(p.id)}
+                          advisory={advisoryIds.has(p.id)}
+                        />
+                      ))}
+                    </AnimatePresence>
+
+                    {/* Scan line while agents hold the design. There's no honest
+                        progress number to show, so this says "busy", nothing more. */}
+                    {isRunning && (
+                      <div
+                        aria-hidden
+                        className="rack-scan pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-transparent via-primary/25 to-transparent"
+                        style={{ zIndex: 30 }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="rack-rail shrink-0" style={{ width: RAIL_PX }} />
+                </div>
+              </div>
+
+              <div className="mt-1 h-2 rounded-[2px] border border-black/50 bg-black/25" />
             </div>
+
             <ZeroUTray />
           </div>
         </div>

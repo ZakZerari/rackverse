@@ -10,11 +10,10 @@ import type { ArchitectOutputSchema } from "@/lib/schemas";
 import type { Design, Patch, Requirements, Violation } from "@/lib/types";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import { verifyPatch } from "@/lib/verify";
+import { recordRepairVerdict } from "@/lib/repairVerdicts";
 import type { z } from "zod";
 
-/** How many repair candidates to sample per round. Sampling in parallel costs
- *  one round trip instead of N, and gives the deterministic Verifier a choice
- *  of patches rather than a single take-it-or-leave-it proposal. */
+/** A rejected repair gets one corrected candidate with the verifier's reason. */
 const REPAIR_CANDIDATES = 2;
 
 export interface TraceStep {
@@ -70,9 +69,9 @@ export interface RepairLoopOptions {
 
 /**
  * Repair -> verify -> commit-or-rollback, up to `maxAttempts` rounds. Each
- * round samples REPAIR_CANDIDATES patches concurrently and keeps the first the
- * deterministic Verifier accepts. Stops as soon as there are no hard
- * violations left.
+ * round tries up to REPAIR_CANDIDATES patches in sequence. A rejected patch's
+ * reason goes in the next user message, keeping the Mubit task identity fixed.
+ * Sequential calls avoid bursts against the provider's capacity limit.
  */
 export async function runRepairLoop(
   design: Design,
@@ -91,19 +90,23 @@ export async function runRepairLoop(
     if (hard.length === 0) break;
 
     const lessons = getLessons(hard);
-    const proposals = await Promise.allSettled(
-      Array.from({ length: REPAIR_CANDIDATES }, () =>
-        runRepairAgent(
-          { design: current, violations: hard, requirements, lessons },
-          { runId: opts.runId, emit, note: `Proposing a fix for ${hard.length} violation(s)…` }
-        )
-      )
-    );
-
     let committed = false;
-    for (const proposal of proposals) {
-      if (proposal.status !== "fulfilled") continue;
-      const result = verifyPatch(current, proposal.value, requirements, "valid");
+    let previousRejection: string | undefined;
+    for (let candidate = 1; candidate <= REPAIR_CANDIDATES; candidate++) {
+      const proposal = await runRepairAgent(
+        { design: current, violations: hard, requirements, lessons, previousRejection },
+        { runId: opts.runId, emit, note: candidate === 1
+          ? `Proposing a fix for ${hard.length} violation(s)…` : "Revising the rejected fix…" }
+      );
+      const result = verifyPatch(current, proposal, requirements, "valid");
+
+      if (opts.runId) recordRepairVerdict({
+        runId: opts.runId, round: attempt, candidate,
+        suggestedRating: result.accepted ? "Good" : "Bad",
+        reason: result.reason,
+        hardBefore: hardViolations(result.before).length,
+        hardAfter: hardViolations(result.after).length,
+      });
 
       emit({
         type: "verifier:decision",
@@ -114,7 +117,7 @@ export async function runRepairLoop(
       });
       trace.push(
         traceStep(
-          `RepairAgent (round ${attempt})`,
+          `RepairAgent (round ${attempt}, candidate ${candidate})`,
           result.accepted ? `Patch accepted — ${result.reason}` : `Patch rejected — ${result.reason}`,
           result.accepted,
           hardViolations(result.after).length
@@ -123,11 +126,12 @@ export async function runRepairLoop(
 
       if (result.accepted) {
         current = result.design;
-        onLessonLearned(hard, proposal.value, result.reason);
+        onLessonLearned(hard, proposal, result.reason);
         emit({ type: "design:update", design: current });
         committed = true;
         break;
       }
+      previousRejection = result.reason;
     }
 
     // Every candidate this round was rejected — another round with identical

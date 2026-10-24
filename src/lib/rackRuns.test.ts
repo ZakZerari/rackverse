@@ -41,4 +41,20 @@ describe("rack-scoped Mubit evidence", () => {
       averageLatencyMs: null, lastModel: null, lastRun: null,
     });
   });
+
+  it("computes first-round pass, rounds and end-to-end latency from verified repair runs", () => {
+    const runs: RackRunRecord[] = [
+      { rackId: "rack-a", runId: "rack:rack-a:one", kind: "repair", timestamp: "2026-10-24T10:00:00Z",
+        status: "completed", initialHardCount: 2, finalHardCount: 0, repairRounds: 1, firstRoundPassed: true, durationMs: 1100 },
+      { rackId: "rack-a", runId: "rack:rack-a:two", kind: "repair", timestamp: "2026-10-24T11:00:00Z",
+        status: "completed", initialHardCount: 1, finalHardCount: 0, repairRounds: 3, firstRoundPassed: false, durationMs: 3300 },
+      { rackId: "rack-a", runId: "rack:rack-a:error", kind: "repair", timestamp: "2026-10-24T12:00:00Z",
+        status: "error", durationMs: 9000 },
+      { rackId: "rack-b", runId: "rack:rack-b:one", kind: "repair", timestamp: "2026-10-24T13:00:00Z",
+        status: "completed", initialHardCount: 1, finalHardCount: 0, repairRounds: 1, firstRoundPassed: true },
+    ];
+    expect(rackMetrics(["rack-a"], [], runs)["rack-a"]).toMatchObject({
+      repairRuns: 2, firstRoundPassRatePct: 50, averageRepairRounds: 2, averageRepairDurationMs: 2200,
+    });
+  });
 });

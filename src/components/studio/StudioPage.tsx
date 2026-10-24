@@ -20,6 +20,7 @@ import { CatalogPanel } from "@/components/studio/CatalogPanel";
 import { CopilotPanel } from "@/components/studio/CopilotPanel";
 import { RackElevation } from "@/components/studio/RackElevation";
 import { RackSettingsPanel } from "@/components/studio/RackSettingsPanel";
+import { MubitTelemetryBar } from "@/components/studio/MubitTelemetryBar";
 import { SummaryBar } from "@/components/studio/SummaryBar";
 import { Toolbar } from "@/components/studio/Toolbar";
 import { VersionHistoryPanel } from "@/components/studio/VersionHistoryPanel";
@@ -55,7 +56,10 @@ export default function StudioPage({ rackId }: { rackId: string }) {
         versions: state.versions, turns: state.turns,
       });
     });
+    const flushOnLeave = () => useFleetStore.getState().flush();
+    window.addEventListener("pagehide", flushOnLeave);
     return () => {
+      window.removeEventListener("pagehide", flushOnLeave);
       if (useRackStore.getState().isRunning) {
         useRackStore.getState().applyEvent({ type: "run:error", error: "Stopped when leaving this rack." });
       }
@@ -140,6 +144,7 @@ export default function StudioPage({ rackId }: { rackId: string }) {
         </header>
 
         <SummaryBar />
+        <MubitTelemetryBar rackId={rackId} />
 
         <nav className="flex shrink-0 border-b border-border bg-panel lg:hidden" aria-label="Studio panels">
           {(["equipment", "rack", "copilot"] as const).map((name) => (

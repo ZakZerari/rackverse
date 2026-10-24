@@ -6,6 +6,7 @@ import {
   taskFingerprint,
   type AgentName,
 } from "@/lib/agents/registry";
+import { MUBIT_TASK_MODEL } from "@/lib/llm";
 
 /**
  * These pins exist because task drift is invisible at runtime and expensive:
@@ -17,28 +18,33 @@ const PINNED: Record<AgentName, { taskName: string; instructionsHash: string; sc
   RequirementsAgent: {
     taskName: "You are RequirementsAgent, part of a",
     instructionsHash: "b6cf6684",
-    schemaHash: "879b95ab",
+    schemaHash: "8b92498a",
   },
   RackArchitect: {
     taskName: "You are RackArchitect, part of a",
     instructionsHash: "a15dc1d5",
-    schemaHash: "eac7e4fe",
+    schemaHash: "a1226e8a",
   },
   RackEditor: {
     taskName: "You are RackEditor, part of a",
     instructionsHash: "f1c3510e",
-    schemaHash: "3ca468d3",
+    schemaHash: "d1146ef3",
   },
   RepairAgent: {
     taskName: "You are RepairAgent, part of a",
     instructionsHash: "05efc2c9",
-    schemaHash: "3ca468d3",
+    schemaHash: "b27b7f33",
   },
 };
 
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = MUBIT_TASK_MODEL;
+const PINNED_MODEL = "gemini-3.5-flash-lite";
 
 describe("Mubit task identity", () => {
+  it("pins the production model so changing it requires an intentional task migration", () => {
+    expect(MUBIT_TASK_MODEL).toBe(PINNED_MODEL);
+  });
+
   it("every agent has distinct instructions — shared ones would collapse into one task", () => {
     const unique = new Set(AGENT_LIST.map((a) => normaliseInstructions(a.instructions)));
     expect(unique.size).toBe(AGENT_LIST.length);

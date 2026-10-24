@@ -3,18 +3,18 @@
 // Why this exists: we originally ran on `gemini-3.8-flash` and every call took
 // 19-163s. Probing all models CONCURRENTLY through the same proxy and key
 // showed it wasn't the proxy, the schema or the prompt — 3.8-flash alone was
-// throttled to ~105s while five other models answered in 1-3s. Re-run this if
-// latency regresses mid-event; availability on this tier moves around.
+// throttled to ~105s while five other models answered in 1-3s. Diagnostic
+// calls opt out of Mubit recording, so they cannot create training tasks.
 //
 //   npm run pick-model
-import { CATALOG } from "@/data/catalog";
+import { catalogSummaryFor } from "@/lib/catalog";
 import { RACK_ARCHITECT_SYSTEM } from "@/lib/agents/architect";
-import { getMubitClient, toGeminiJsonSchema } from "@/lib/llm";
+import { getMubitClient, mubitResponseFormat } from "@/lib/llm";
 import { ArchitectOutputSchema } from "@/lib/schemas";
 import { generateRequirements } from "@/lib/scenarios";
 import type { Design } from "@/lib/types";
 import { hardViolations, validateDesign } from "@/lib/validate";
-import { z } from "zod";
+import pLimit from "p-limit";
 
 try {
   process.loadEnvFile(".env.local");
@@ -33,9 +33,7 @@ const CANDIDATES = [
 ];
 const SEEDS = [1, 2, 3];
 
-const jsonSchema = toGeminiJsonSchema(
-  z.toJSONSchema(ArchitectOutputSchema, { target: "draft-7" })
-) as Record<string, unknown>;
+const responseFormat = mubitResponseFormat("RackArchitect", ArchitectOutputSchema);
 
 interface Outcome {
   model: string;
@@ -51,7 +49,7 @@ async function runOne(model: string, seed: number): Promise<Outcome> {
   const requirements = generateRequirements(seed);
   const user = JSON.stringify({
     requirements,
-    catalog: CATALOG.map((c) => JSON.stringify(c)).join("\n"),
+    catalog: catalogSummaryFor(),
   });
   const started = Date.now();
 
@@ -62,11 +60,8 @@ async function runOne(model: string, seed: number): Promise<Outcome> {
         { role: "system", content: RACK_ARCHITECT_SYSTEM },
         { role: "user", content: user },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "Architect", schema: jsonSchema, strict: false },
-      },
-    });
+      response_format: responseFormat,
+    }, { headers: { "x-middleware-record": "off" } });
 
     const parsed = ArchitectOutputSchema.parse(JSON.parse(res.choices[0]?.message?.content ?? ""));
     const design: Design = {
@@ -106,8 +101,9 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Real Architect workload — ${CANDIDATES.length} models x ${SEEDS.length} seeds, all concurrent.\n`);
-  const results = await Promise.all(CANDIDATES.flatMap((m) => SEEDS.map((s) => runOne(m, s))));
+  console.log(`Real Architect workload — ${CANDIDATES.length} models x ${SEEDS.length} seeds, 2 at a time.\n`);
+  const limit = pLimit(2);
+  const results = await Promise.all(CANDIDATES.flatMap((m) => SEEDS.map((s) => limit(() => runOne(m, s)))));
 
   const summary = CANDIDATES.map((model) => {
     const rows = results.filter((r) => r.model === model);
@@ -130,8 +126,13 @@ async function main() {
     for (const e of s.errors) if (e) console.log(`         ${e}`);
   }
 
-  const best = summary[0];
-  console.log(`\nRecommended: MUBIT_MODEL=${best.model} (${(best.avgMs / 1000).toFixed(1)}s avg)`);
+  const best = summary.find((result) => result.parsed > 0);
+  if (best) {
+    console.log(`\nDiagnostic leader: ${best.model} (${(best.avgMs / 1000).toFixed(1)}s avg).`);
+    console.log("Production stays pinned; changing its model requires an intentional Mubit task migration.");
+  } else {
+    console.log("\nNo candidate returned a valid response. Keep the production model unchanged.");
+  }
 }
 
 main().catch((err) => {

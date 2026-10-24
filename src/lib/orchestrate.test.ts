@@ -11,7 +11,8 @@ import { runRequirementsAgent } from "@/lib/agents/requirements";
 import { runArchitect } from "@/lib/agents/architect";
 import { runRackEditor } from "@/lib/agents/editor";
 import { runRepairAgent } from "@/lib/agents/repair";
-import { designFromPrompt } from "@/lib/orchestrate";
+import { designFromPrompt, runRepairLoop } from "@/lib/orchestrate";
+import { hardViolations, validateDesign } from "@/lib/validate";
 
 const mockRequirements = vi.mocked(runRequirementsAgent);
 const mockArchitect = vi.mocked(runArchitect);
@@ -37,6 +38,36 @@ beforeEach(() => {
 });
 
 describe("Mubit agent orchestration with deterministic checks", () => {
+  it("retries a rejected repair sequentially with verifier feedback in the user input", async () => {
+    const broken: Design = { ...current, placements: [
+      { id: "panel", catalogId: "generic-blanking-panel-1u", startU: 40, face: "front" },
+    ] };
+    mockRepair
+      .mockResolvedValueOnce({ ops: [], rationale: "No change" })
+      .mockResolvedValueOnce({ ops: [{ op: "move", placementId: "panel", newStartU: 1 }], rationale: "Moved inside rack" });
+
+    const fixed = await runRepairLoop(broken, requirements, [], {
+      getLessons: () => [], onLessonLearned: () => {},
+    });
+
+    expect(mockRepair).toHaveBeenCalledTimes(2);
+    expect(mockRepair.mock.calls[1][0]).toMatchObject({
+      previousRejection: expect.stringContaining("no improvement"),
+    });
+    expect(hardViolations(validateDesign(fixed, requirements))).toHaveLength(0);
+  });
+
+  it("surfaces a provider failure instead of silently returning an unrepaired rack", async () => {
+    const broken: Design = { ...current, placements: [
+      { id: "panel", catalogId: "generic-blanking-panel-1u", startU: 40, face: "front" },
+    ] };
+    mockRepair.mockRejectedValueOnce(new Error("Model temporarily unavailable"));
+    await expect(runRepairLoop(broken, requirements, [], {
+      getLessons: () => [], onLessonLearned: () => {},
+    })).rejects.toThrow("Model temporarily unavailable");
+    expect(mockRepair).toHaveBeenCalledTimes(1);
+  });
+
   it("sends structured first-turn context and builds a new rack", async () => {
     const events: RunEvent[] = [];
     const result = await designFromPrompt("24U edge rack", { emit: (event) => events.push(event) });

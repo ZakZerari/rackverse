@@ -1,4 +1,5 @@
 import { catalogItemFor } from "@/lib/catalog";
+import { designTotals } from "@/lib/summary";
 import type { Design, Placement, Requirements } from "@/lib/types";
 
 /** Deterministic PRNG (mulberry32) so a given seed always reproduces the same scenario. */
@@ -60,6 +61,48 @@ export interface BreakResult {
   design: Design;
   fault: FaultKind;
   description: string;
+}
+
+export type ChaosPreset = "power_cut" | "pdu_failure" | "capex_slash";
+
+export interface ChaosResult {
+  design: Design;
+  requirements: Requirements;
+  description: string;
+}
+
+/** Changes operating constraints or removes failed equipment without mutating the source rack. */
+export function applyChaosPreset(design: Design, requirements: Requirements, preset: ChaosPreset): ChaosResult {
+  switch (preset) {
+    case "power_cut": {
+      const powerBudgetW = Math.max(1, Math.floor(design.rack.powerBudgetW * 0.7));
+      return {
+        design: { ...design, rack: { ...design.rack, powerBudgetW }, version: design.version + 1 },
+        requirements: { ...requirements, powerBudgetW },
+        description: `Utility allocation fell 30% to ${(powerBudgetW / 1000).toFixed(2)} kW.`,
+      };
+    }
+    case "pdu_failure": {
+      const failed = design.placements.find((placement) => placement.feed === "B" &&
+        catalogItemFor(design, placement.catalogId)?.category === "pdu");
+      return {
+        design: failed ? { ...design, placements: design.placements.filter((p) => p.id !== failed.id), version: design.version + 1 } : design,
+        requirements: { ...requirements, redundantPower: true },
+        description: failed
+          ? `B-side PDU ${catalogItemFor(design, failed.catalogId)?.name} failed and was removed from service.`
+          : "No B-side PDU is installed; independent A/B power is now required.",
+      };
+    }
+    case "capex_slash": {
+      const priorBudget = requirements.budgetUsd ?? designTotals(design).costUsd;
+      const budgetUsd = Math.max(0, Math.floor(priorBudget * 0.75));
+      return {
+        design,
+        requirements: { ...requirements, budgetUsd },
+        description: `CapEx limit fell 25% from $${priorBudget.toLocaleString()} to $${budgetUsd.toLocaleString()}.`,
+      };
+    }
+  }
 }
 
 function heightOf(design: Design, p: Placement): number {

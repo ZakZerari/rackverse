@@ -5,6 +5,9 @@ export interface CallLogEntry {
   ts: string;
   agent: string;
   model?: string;
+  /** Local hash of task-defining request fields; not Mubit’s task ID. */
+  taskKey?: string;
+  recordForTraining?: boolean;
   mubitRequestId?: string | null;
   runId?: string;
   latencyMs: number;

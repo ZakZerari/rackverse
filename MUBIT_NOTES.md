@@ -1,5 +1,19 @@
 # Mubit integration notes
 
+## Current task and 503 audit (October 2026)
+
+[Mubit's task rules](https://docs.mubit.ai/guides/tasks-and-sessions) group calls by **instructions, tools, tool choice, output format, and model**. The rack name, design, catalog entries, conversation, repair feedback, and retry message are user-message data; changing those does not create a new task. Task names are the first words of the instructions. A numbered suffix in the console is therefore evidence of several tasks with similar names, not evidence that Mubit created an agent for each physical server. The screenshot alone cannot identify which historical field changed.
+
+Production now keeps one fixed model ID (`gemini-3.5-flash-lite`) and refuses a mismatched `MUBIT_MODEL`, shares one response-format builder between the actual request and the fingerprint test, and keeps every agent's instructions constant. `pick-model` and `smoke-mubit` use `x-middleware-record: off`, per the [API reference](https://docs.mubit.ai/reference/api), so diagnostic calls cannot add more task fragments or training examples. Their requests still reach the provider, but do not appear as kept examples. Deliberately changing a prompt, model, or output format still starts a new task; existing console tasks cannot be merged by this app.
+
+New local call records include a `taskKey` hash of the task-defining request fields and `recordForTraining`. Equal keys across racks show that this app sent the same task identity; the key is not a Mubit task ID, and older records have no key. Mubit's console remains the source of truth for task count and kept examples.
+
+The reported `503 ... high demand ... UNAVAILABLE` matches a **provider capacity response** passed through Mubit; this is an inference from its body and Mubit's documented error format, not an adapter-training status. A separate `503` saying the gateway could not check a key is a Mubit gateway error. [Mubit's troubleshooting guide](https://docs.mubit.ai/troubleshooting) says to retry temporary 5xx responses and honor `retry-after` where present. The app now retries with backoff while keeping the same task identity, shows retry progress instead of raw JSON, and reports a clear final error if capacity does not recover. Repair candidates run in sequence with verifier feedback to avoid sending duplicate simultaneous requests.
+
+Training is still controlled by Mubit: by default a task first trains at 25 **kept** examples, not 25 app calls; its Tasks page is the source of truth. “Reviewing examples” means the threshold was reached and Mubit is processing them. A passing adapter is evaluated separately in Try models; app calls are forwarded to the provider. See [Create your first adapter](https://docs.mubit.ai/guides/first-adapter).
+
+Every RepairAgent candidate now receives a local verifier verdict with its round, hard-violation counts, reason, and gateway request ID when available. `/lab` presents Good/Bad **suggestions** for manual review. [Requests](https://docs.mubit.ai/guides/requests) documents a Good/Bad console control but no feedback API or guaranteed effect on the kept-example pool. We therefore do not claim rejected patches are excluded from adapter training. The `x-middleware-request-id` header is also distinct from the console's own request ID.
+
 Findings from skimming https://docs.mubit.ai (and its `/llms-full.txt`) before writing `src/lib/llm.ts`. Anything not confirmed here should be treated as unverified.
 
 ## Base URL & auth
@@ -14,18 +28,18 @@ Findings from skimming https://docs.mubit.ai (and its `/llms-full.txt`) before w
 const client = new OpenAI({ baseURL: "https://api.mubit.ai/gemini/v1beta/openai", apiKey: process.env.MUBIT_API_KEY });
 ```
 
-**Gotcha (confirmed live, not just docs):** Gemini's OpenAI-compat shim 400s on `metadata` — `{"error":{"message":"Invalid JSON payload received. Unknown name \"metadata\": Cannot find field."}}`. So `src/lib/llm.ts` does NOT send `metadata` on this route (session grouping below is therefore unverified for Gemini specifically — our own `runId`/`agent` fields still land in `data/calls.jsonl` for local tracing).
+**Gotcha (confirmed live, not just docs):** Gemini's OpenAI-compat shim 400s on `metadata` — `{"error":{"message":"Invalid JSON payload received. Unknown name \"metadata\": Cannot find field."}}`. So `src/lib/llm.ts` does NOT send `metadata` on this route. Our `runId` and `agent` fields remain in `data/calls.jsonl` for local tracing only.
 
 ## Sessions vs. tasks (this matters for our architecture)
 
 These are two different, unrelated groupings — don't conflate them:
 
-- **Session** (groups calls that belong to one conversation/run, for the console's log view): set via `metadata`, first of `metadata.thread_id`, `metadata.session_id`, `metadata.conversation_id` that's present. We use `session_id` with our own `runId`. Values over 200 chars get hashed. There is **no documented `agent` metadata field** — passing extra keys (we pass `agent`) is harmless but doesn't affect grouping.
+- **Session** (groups calls for testing and console navigation): Mubit can read supported metadata fields on some providers. Its [Tasks and sessions guide](https://docs.mubit.ai/guides/tasks-and-sessions) lists **none for Gemini** and says it derives a session from the start of the conversation. This app does not send session metadata; local `runId` does not affect Mubit grouping.
 - **Task** (what an adapter actually trains on): calls form one task when they share **all** of: instructions (system prompt), tools, tool choice, output format, and model. This is exactly why principle #4 in the brief (one constant system prompt per agent, one model, one output format, nothing dynamic in the system prompt) matters — it's the difference between each agent accumulating its own trainable task vs. silently fragmenting into many untrainable ones.
 
 ## Structured output
 
-Docs don't explicitly confirm `response_format: json_schema` support versus `json_object` — it reads as a pass-through to the underlying provider. `src/lib/llm.ts` handles this defensively: it tries `json_schema` first, and if the very first call fails in a way that looks like an unsupported `response_format`, it falls back to `json_object` and remembers that for the rest of the process. Run `npm run smoke-mubit` once `.env.local` is filled in — it prints which mode actually worked, and that result gets appended below.
+The Gemini-compatible route accepted `response_format: json_schema` in the live smoke test below. Production keeps this format fixed; switching formats during normal traffic would fragment the Mubit task.
 
 ## Adapter training
 
@@ -57,7 +71,7 @@ Mubit responded: { ok: true, note: 'Connection successful' }
 Structured output mode that worked: json_schema
 ```
 
-So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` no longer needs to fall back to `json_object` for Gemini. (The call to Mubit's console to visually confirm the call landed there is still something a human needs to do — not something I can check myself.)
+So `response_format: { type: "json_schema", ... }` works on this route — `src/lib/llm.ts` does not fall back to `json_object` for Gemini. New smoke calls opt out of Mubit recording to avoid creating diagnostic tasks.
 
 ## The free-tier rate limit, which explains almost everything
 
@@ -104,9 +118,9 @@ There is **no documented way to merge, rename, or re-point tasks**, and no task-
 
 ### What we did about it
 
-- `src/lib/agents/registry.ts` is now the single place every identity-bearing field lives (instructions + schema per agent), with `taskFingerprint()` mirroring Mubit's documented normalisation (whitespace collapsed; numbers/dates/IDs don't split a task).
+- `src/lib/agents/registry.ts` lists the identity-bearing fields for each agent, and `taskFingerprint()` hashes the actual output format sent by `src/lib/llm.ts`. Its local instruction hash is deliberately conservative; Mubit may normalize some differences it flags.
 - `src/lib/agents/fingerprint.test.ts` **pins those fingerprints**. Change a prompt or schema and the suite fails with "this forks its Mubit task. Update the pin only if that's intended." It caught a real drift the first time it ran.
-- We took **one final deliberate fork** to land everything at once (compact catalog format in the prompts, final schema, final model) — then froze. Expect exactly 3 new tasks from here, plus the smoke test's own.
+- The compact catalog format, schema, and model were changed together and then pinned. A later deliberate RackEditor addition created a fourth production task. Smoke tests now opt out of recording.
 
 ### The second deliberate fork, and a fourth task
 
@@ -123,7 +137,7 @@ Cost: four tasks restart from zero kept examples. That was already true of the t
 
 Documented rules only (`/concepts`):
 - *"A call Mubit accepts for training or testing. Not every recorded call becomes a kept example."*
-- The one hard exclusion: *"A call recorded without its request and reply is never a kept example"* — caused by `x-middleware-store: false` or `x-middleware-record: metadata|off`. We send neither.
+- The one hard exclusion: *"A call recorded without its request and reply is never a kept example"* — caused by `x-middleware-store: false` or `x-middleware-record: metadata|off`. Production agent calls send neither; diagnostic scripts deliberately send `off` because their calls should not train adapters.
 - Some kept examples are deliberately withheld as test cases.
 - Length matters: *"examples too long to train on → Send calls with shorter requests and answers."*
 

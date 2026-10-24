@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 export function Toolbar({ rackId }: { rackId: string }) {
   const design = useRackStore((s) => s.design);
   const requirements = useRackStore((s) => s.requirements);
-  const breakIt = useRackStore((s) => s.breakIt);
+  const applyChaos = useRackStore((s) => s.applyChaos);
   const applyEvent = useRackStore((s) => s.applyEvent);
   const isRunning = useRackStore((s) => s.isRunning);
   const hardCount = useRackStore((s) => s.violations.filter((v) => v.severity === "hard").length);
@@ -58,15 +58,21 @@ export function Toolbar({ rackId }: { rackId: string }) {
 
   return (
     <div className="flex items-center gap-1.5">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={breakIt}
+      <select
+        aria-label="Break it: choose workload drift"
+        className="h-8 max-w-[180px] rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50"
+        defaultValue=""
         disabled={busy || design.placements.length === 0}
-        title="Inject a realistic fault into the current design"
+        onChange={(event) => {
+          if (event.target.value) applyChaos(event.target.value as "power_cut" | "pdu_failure" | "capex_slash");
+          event.target.value = "";
+        }}
       >
-        Break it
-      </Button>
+        <option value="" disabled>Break it…</option>
+        <option value="power_cut">⚡ Utility power cut (−30%)</option>
+        <option value="pdu_failure">🔥 Failed B-side PDU</option>
+        <option value="capex_slash">💰 CFO CapEx slash (−25%)</option>
+      </select>
       <Button
         variant={hardCount > 0 ? "default" : "outline"}
         size="sm"

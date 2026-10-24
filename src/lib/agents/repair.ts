@@ -28,6 +28,8 @@ export interface RepairAgentInput {
   violations: Violation[];
   requirements: Requirements;
   lessons: Lesson[];
+  /** Feedback from a rejected candidate. Changes only the user message. */
+  previousRejection?: string;
 }
 
 export async function runRepairAgent(
@@ -40,6 +42,7 @@ export async function runRepairAgent(
     requirements: input.requirements,
     catalog: catalogSummaryFor(input.design),
     verifiedPastFixes: renderLessonsForPrompt(input.lessons),
+    previousRejection: input.previousRejection,
   });
   return complete({
     agent: "RepairAgent",

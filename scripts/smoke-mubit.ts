@@ -32,10 +32,11 @@ async function main() {
     user: 'Reply with {"ok": true, "note": "<a short confirmation message>"}.',
     schema: SmokeSchema,
     runId: "smoke-test",
+    recordForTraining: false,
   });
 
   console.log("Mubit responded:", result);
-  console.log("\nSmoke test PASSED. Check the Mubit console — this call should now be visible there.");
+  console.log("\nSmoke test PASSED. This diagnostic call opted out of recording so it does not create a training task.");
 }
 
 main().catch((err) => {
