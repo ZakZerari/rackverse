@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { applyPatch } from "@/lib/patch";
+import type { TraceStep } from "@/lib/orchestrate";
 import type { Design, Face, Patch, Requirements, Violation } from "@/lib/types";
 import { validateDesign } from "@/lib/validate";
 
@@ -37,6 +38,9 @@ interface RackStore {
   violations: Violation[];
   revalidate: () => void;
 
+  trace: TraceStep[];
+  appendTrace: (steps: TraceStep[]) => void;
+
   setFace: (face: Face) => void;
   selectPlacement: (id: string | null) => void;
 
@@ -59,11 +63,14 @@ export const useRackStore = create<RackStore>((set, get) => ({
   selectedPlacementId: null,
   face: "front",
   violations: [],
+  trace: [],
 
   revalidate: () => {
     const { design, requirements } = get();
     set({ violations: validateDesign(design, requirements) });
   },
+
+  appendTrace: (steps) => set((s) => ({ trace: [...s.trace, ...steps] })),
 
   setFace: (face) => set({ face }),
   selectPlacement: (id) => set({ selectedPlacementId: id }),
@@ -114,8 +121,9 @@ export const useRackStore = create<RackStore>((set, get) => ({
   },
 
   setDesign: (design) => {
-    const { versions } = get();
-    set({ design, versions: [...versions, design] });
+    // A wholly new design from the orchestrator starts its own version history
+    // rather than appending to whatever the Studio had before.
+    set({ design, versions: [design], selectedPlacementId: null });
     get().revalidate();
   },
 

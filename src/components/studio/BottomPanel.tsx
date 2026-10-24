@@ -56,15 +56,41 @@ export function BottomPanel() {
 
         <TabsContent value="activity" className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
-            <p className="p-3 text-xs text-muted-foreground">
-              Agent calls will appear here once the Copilot and Repair Agent are wired up.
-            </p>
+            <AgentActivityList />
           </ScrollArea>
         </TabsContent>
       </Tabs>
       {softCount > 0 && hardCount === 0 && (
         <p className="sr-only">{softCount} soft warning(s)</p>
       )}
+    </div>
+  );
+}
+
+function AgentActivityList() {
+  const trace = useRackStore((s) => s.trace);
+
+  if (trace.length === 0) {
+    return (
+      <p className="p-3 text-xs text-muted-foreground">
+        Agent calls will appear here once you generate or repair a design.
+      </p>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-border">
+      {trace.map((step) => (
+        <div key={step.id} className="flex items-start gap-2 px-3 py-2 text-xs">
+          <Badge variant={step.ok ? "secondary" : "destructive"} className="mt-0.5 shrink-0">
+            {step.ok ? "ok" : "rejected"}
+          </Badge>
+          <div>
+            <p className="font-medium text-foreground">{step.label}</p>
+            <p className="text-muted-foreground">{step.detail}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
