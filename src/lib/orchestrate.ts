@@ -2,7 +2,9 @@ import { runArchitect } from "@/lib/agents/architect";
 import { runRackEditor, type RackEditorInput } from "@/lib/agents/editor";
 import { runRepairAgent } from "@/lib/agents/repair";
 import { runRequirementsAgent } from "@/lib/agents/requirements";
+import { catalogFor } from "@/lib/catalog";
 import { noopEmit, type EmitFn } from "@/lib/events";
+import { explainInfeasibility } from "@/lib/feasibility";
 import { getRelevantLessons, recordLesson, type Lesson } from "@/lib/lessons";
 import { applyPatch, genPlacementId, patchCoherenceProblems } from "@/lib/patch";
 import { planTurn, summariseRequirements, type HistoryEntry } from "@/lib/turn";
@@ -88,6 +90,24 @@ export async function runRepairLoop(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const hard = hardViolations(validateDesign(current, requirements));
     if (hard.length === 0) break;
+
+    // Before spending a round trip: is there PROVABLY no patch that can fix
+    // this, no matter how RepairAgent phrases it? This is the fix for a real
+    // failure mode — asked to hit a budget while keeping redundant A/B power
+    // and a server count, RepairAgent oscillated forever between dual-PSU
+    // servers (fixes redundancy, breaks budget) and single-PSU servers
+    // (fixes budget, breaks redundancy), because no patch satisfies both.
+    // The loop wasn't broken; the request was. Checked once, since
+    // requirements don't change mid-loop.
+    if (attempt === 1) {
+      const infeasible = explainInfeasibility(requirements, catalogFor(current));
+      if (infeasible) {
+        const detail = [...infeasible.reasons, ...infeasible.suggestions].join(" ");
+        emit({ type: "note", label: "Can't fully resolve this", detail, tone: "warn" });
+        trace.push(traceStep("Feasibility check", detail, false, hard.length));
+        break;
+      }
+    }
 
     const lessons = getLessons(hard);
     let committed = false;
@@ -250,6 +270,22 @@ export async function designFromPrompt(
       ...opts.currentDesign,
       rack: { ...opts.currentDesign.rack, heightU: requirements.rackHeightU, powerBudgetW: requirements.powerBudgetW },
     };
+
+    // Same check as runRepairLoop's, run before RackEditor rather than after:
+    // "stay under $25k" with 8 required dual-PSU servers and redundant A/B
+    // power is unsatisfiable from the moment the brief changes, independent
+    // of whatever is currently built. Catching it here means RackEditor
+    // never gets sent to find a patch that provably cannot exist — the
+    // exact repeated-call waste the user ran into turn after turn.
+    const infeasibleUpfront = explainInfeasibility(requirements, catalogFor(baseline));
+    if (infeasibleUpfront) {
+      const detail = [...infeasibleUpfront.reasons, ...infeasibleUpfront.suggestions].join(" ");
+      emit({ type: "note", label: "Can't fit that", detail, tone: "warn" });
+      trace.push(traceStep("Feasibility check", detail, false));
+      emit({ type: "run:done", design: baseline, requirements, mode: "amend" });
+      return { design: baseline, requirements, trace };
+    }
+
     let design = baseline;
     const { patch, problems } = await proposeCoherentEdit(
       { request: text, history: opts.history ?? [], requirements, design },

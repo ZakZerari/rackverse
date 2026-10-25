@@ -54,6 +54,7 @@ async function main() {
         if (event.type === "agent:done") console.log(`  · ${event.agent} ${(event.latencyMs / 1000).toFixed(1)}s`);
         if (event.type === "agent:error") console.log(`  ! ${event.agent} ${event.error}`);
         if (event.type === "verifier:decision") console.log(`  · Verifier ${event.accepted ? "accepted" : "REJECTED"} — ${event.reason}`);
+        if (event.type === "note") console.log(`  ⚠ ${event.label}: ${event.detail}`);
       },
     });
 

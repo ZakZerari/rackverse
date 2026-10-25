@@ -13,8 +13,19 @@ import { noopEmit, type EmitFn } from "@/lib/events";
 // /openai/v1 route) so we run on Gemini while still using the `openai` npm SDK
 // everywhere, per the fixed stack. See MUBIT_NOTES.md.
 export const MUBIT_BASE_URL = "https://api.mubit.ai/gemini/v1beta/openai";
-/** Changing this starts new Mubit tasks for every production agent. */
-export const MUBIT_TASK_MODEL = "gemini-3.5-flash-lite";
+/**
+ * Changing this starts new Mubit tasks for every production agent — each
+ * agent's task identity is (instructions, schema, model), so every task
+ * forks and every adapter restarts from zero kept examples. See
+ * MUBIT_NOTES.md "Model choice" for why this is gemini-3.8-flash rather than
+ * the earlier gemini-3.5-flash-lite: on this account's free tier 3.8-flash
+ * was throttled to ~105s/call (unusable); re-measured after billing was
+ * enabled on the Gemini project, it runs ~18s/call with the same real
+ * Architect workload — ~9x slower than flash-lite's ~2s, but reliably so
+ * rather than randomly. Deliberately re-pinned for a stronger base model to
+ * train adapters on, at that known latency cost.
+ */
+export const MUBIT_TASK_MODEL = "gemini-3.8-flash";
 
 const CALLS_LOG_PATH = join(process.cwd(), "data", "calls.jsonl");
 

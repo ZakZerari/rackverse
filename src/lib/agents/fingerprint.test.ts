@@ -38,7 +38,9 @@ const PINNED: Record<AgentName, { taskName: string; instructionsHash: string; sc
 };
 
 const MODEL = MUBIT_TASK_MODEL;
-const PINNED_MODEL = "gemini-3.5-flash-lite";
+// 2026-10-25: deliberately re-pinned from gemini-3.5-flash-lite to
+// gemini-3.8-flash — forks all four tasks. See MUBIT_NOTES.md "Model choice".
+const PINNED_MODEL = "gemini-3.8-flash";
 
 describe("Mubit task identity", () => {
   it("pins the production model so changing it requires an intentional task migration", () => {

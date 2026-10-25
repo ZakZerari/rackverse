@@ -55,7 +55,10 @@ describe("production task stability", () => {
     try {
       process.env.MUBIT_MODEL = MUBIT_TASK_MODEL;
       expect(getMubitModel()).toBe(MUBIT_TASK_MODEL);
-      process.env.MUBIT_MODEL = "gemini-3.8-flash";
+      // Any model other than the pinned one should be refused — derived
+      // from the constant rather than a literal so this test survives the
+      // next deliberate re-pin instead of hardcoding today's choice.
+      process.env.MUBIT_MODEL = `${MUBIT_TASK_MODEL}-other`;
       expect(getMubitModel).toThrow(/split agent training tasks/);
     } finally {
       if (prior === undefined) delete process.env.MUBIT_MODEL;

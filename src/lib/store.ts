@@ -250,6 +250,10 @@ export const useRackStore = create<RackStore>((set, get) => ({
         get().revalidate();
         break;
 
+      case "note":
+        addItem({ kind: "note", id: uid("note"), label: event.label, detail: event.detail, tone: event.tone });
+        break;
+
       case "validator:result":
         addItem({
           kind: "validator",

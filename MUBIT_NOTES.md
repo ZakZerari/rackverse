@@ -263,3 +263,30 @@ Gemini's structured-output schema subset does **not** include `oneOf`, and Zod �
 ### Consequences for the batch scripts
 
 `train-traffic` and `bench` were written when calls cost ~150s, so they take `--n` / `--train-n` / `--held-out-n` flags to keep sanity runs cheap. At ~2s/call those full runs are now genuinely practical rather than hour-long commitments.
+
+### Re-decision after billing (2026-10-25): back to `gemini-3.8-flash`
+
+The 105s figure above was measured on the free tier. Once the Gemini project had billing enabled (to clear the [daily quota wall](#the-daily-quota-which-is-the-real-ceiling)), `npm run pick-model` was re-run on the same real Architect workload before touching the pin — never trust a stale latency number for a decision this expensive:
+
+| model | before billing | after billing | parsed | valid 1st try |
+|---|---|---|---|---|
+| `gemini-3.5-flash-lite` | 1.1s | **2.1s** | 3/3 | 1/3 |
+| `gemini-3.6-flash` | 1.9s | 13.7s | 3/3 | 3/3 |
+| `gemini-3.5-flash` | 2.6s | 13.8s | 3/3 | 3/3 |
+| `gemini-3.8-flash` | **105.1s** | **18.3s** | 3/3 | **3/3** |
+
+Billing didn't just help 3.8-flash — every non-lite model got slower in absolute terms (contention and/or thinking budget differences under a different quota tier), while 3.8-flash went from unusable to the only model with a perfect valid-first-try record. flash-lite stayed fastest but dropped to 1/3 valid on this run (small-n noise, not re-tested further — the point was 3.8-flash's viability, not flash-lite's regression).
+
+**Decision: `MUBIT_MODEL=gemini-3.8-flash`**, requested explicitly for use as the model going forward (including training). This is a deliberate trade: ~9x slower per call than flash-lite (roughly 18s vs 2s), accepted for 3/3 valid-first-try reliability and because it's the strongest base model available at flash-tier pricing. It forks all four Mubit tasks — every agent's kept-example count resets to zero; `npm run train-adapters` fills them back up under the new model, and `fingerprint.test.ts`'s `PINNED_MODEL` was updated in the same commit as the switch, which is the whole point of pinning it: the fork is a decision with a diff attached, not an accident.
+
+**Not claimed:** that 3.8-flash's answers are actually better for this task, only that they're no longer bottlenecked by throttling and parse/validate reliably in this sample. Watch the Mubit console's four fresh tasks and `npm run pick-model` again if this ever needs re-litigating — pin decisions here are point-in-time measurements, not permanent facts about the model.
+
+## Agents don't know when a request is impossible — the actual "they're stupid" bug
+
+A real session: 42U rack, 8 servers, redundant A/B power, $60k budget — built fine. Then "stay under $25k." RequirementsAgent updated the budget; RackEditor swapped servers; the validator found `REDUNDANCY_DEVICE_PSU` + `BUDGET_EXCEEDED`; RepairAgent oscillated between the only two moves that exist — dual-PSU servers (fixes redundancy, breaks budget) or single-PSU servers (fixes budget, breaks redundancy) — got rejected both ways, gave up with "No usable patch found," and the user had no way to know why. The next three messages ("fix", "the budget is still exceeded", Auto-repair) each re-ran the identical doomed sequence from scratch, because nothing in the system remembered — or could compute — that no patch exists.
+
+It wasn't a flaky model. The combination is **mathematically unsatisfiable on this catalog**: the cheapest 8 dual-PSU servers alone cost $24,800 (only `supermicro-superserver-1027r-wrf` at $3,100 is both dual-PSU and cheap), and a redundant PDU pair capable of carrying the resulting ~6.4kW load adds $3,000 more — **$30,600 minimum against a $25,000 budget**, before switches. No patch RepairAgent could propose would ever fix this, because the premise is false.
+
+**Fix:** `src/lib/feasibility.ts` computes a genuine lower-bound cost/power/height for any design satisfying a given `Requirements` — cheapest dual-PSU server when redundancy is asked for, cheapest PDU pair that can actually carry the load, enough of the cheapest switch for the ports those picks need. It's a sound proof of infeasibility (nothing shaped like the brief can cost less), never a claim of feasibility (a result under budget proves nothing and is never acted on). `orchestrate.ts` calls it at the two points that used to burn calls on an impossible request: before `RackEditor` runs at all on an amend turn, and before each `runRepairLoop` attempt. When it proves infeasibility, no agent is called — the user gets an immediate, specific, deterministic answer instead (`$30,600 minimum... At $3,100 for the cheapest dual-PSU server, the budget fits about 6 instead of 8.`), and repeating the same doomed request no longer repeats the same doomed LLM calls.
+
+This is "AI proposes, code decides" applied one layer up: not just validating a proposed design, but deciding — before asking an agent to try — whether any design could possibly answer the brief.

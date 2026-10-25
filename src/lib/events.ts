@@ -22,6 +22,9 @@ export type RunEvent =
   | { type: "agent:error"; agent: string; attempt: number; error: string }
   /** The brief as it now stands — carried across turns rather than re-derived. */
   | { type: "requirements:update"; requirements: Requirements; summary: string }
+  /** A deterministic finding that isn't an agent step, a validator run, or a
+   *  verifier decision — e.g. "no patch can satisfy this, here's why". */
+  | { type: "note"; label: string; detail: string; tone: "neutral" | "warn" }
   | { type: "validator:result"; violations: Violation[]; hardCount: number }
   | { type: "verifier:decision"; accepted: boolean; reason: string; hardBefore: number; hardAfter: number }
   | { type: "design:update"; design: Design }

@@ -174,4 +174,67 @@ describe("Mubit agent orchestration with deterministic checks", () => {
     expect(result.design.placements).toEqual(current.placements);
     expect(events).toContainEqual(expect.objectContaining({ type: "verifier:decision", accepted: false }));
   });
+
+  it("never calls RackEditor when the brief is provably unaffordable, and says why", async () => {
+    // The exact scenario a user hit: redundant A/B power + 8 servers has a
+    // real-catalog floor of $30,600. No patch can close that gap, so the
+    // editor should never even be asked to try.
+    const impossible: Requirements = {
+      ...requirements, redundantPower: true, budgetUsd: 3000,
+      required: [{ category: "server", qty: 8 }],
+    };
+    mockRequirements.mockResolvedValue(impossible);
+    const events: RunEvent[] = [];
+
+    const result = await designFromPrompt("stay under $3k", {
+      currentDesign: current, currentRequirements: requirements, emit: (event) => events.push(event),
+    });
+
+    expect(mockEditor).not.toHaveBeenCalled();
+    expect(mockRepair).not.toHaveBeenCalled();
+    expect(result.design.placements).toEqual(current.placements);
+    const note = events.find((event) => event.type === "note");
+    expect(note).toMatchObject({ type: "note", tone: "warn" });
+    expect((note as Extract<RunEvent, { type: "note" }>).detail).toMatch(
+      /Even the cheapest valid configuration costs about \$\d{2},\d{3} — .* over the \$3,000 budget/
+    );
+  });
+
+  it("repeating the same impossible ask costs one call every time, not a growing pile", async () => {
+    const impossible: Requirements = {
+      ...requirements, redundantPower: true, budgetUsd: 3000,
+      required: [{ category: "server", qty: 8 }],
+    };
+    mockRequirements.mockResolvedValue(impossible);
+
+    await designFromPrompt("stay under $3k", { currentDesign: current, currentRequirements: requirements });
+    await designFromPrompt("fix", { currentDesign: current, currentRequirements: requirements });
+    await designFromPrompt("still over budget", { currentDesign: current, currentRequirements: requirements });
+
+    // One RequirementsAgent call per turn, zero Editor/Repair calls ever —
+    // not the 6-8 calls per turn the unguarded loop used to burn chasing an
+    // answer that could never exist.
+    expect(mockRequirements).toHaveBeenCalledTimes(3);
+    expect(mockEditor).not.toHaveBeenCalled();
+    expect(mockRepair).not.toHaveBeenCalled();
+  });
+});
+
+describe("runRepairLoop refuses to grind on an unfixable design", () => {
+  it("never calls RepairAgent when no patch could possibly satisfy the requirements", async () => {
+    const impossible: Requirements = {
+      rackHeightU: 24, powerBudgetW: 3000, redundantPower: true, budgetUsd: 3000,
+      required: [{ category: "server", qty: 8 }],
+    };
+    // Any design handed in already has a hard violation under `impossible`
+    // (it has no servers at all yet), so the loop would normally try to fix it.
+    const events: RunEvent[] = [];
+
+    const design = await runRepairLoop(current, impossible, [], { emit: (event) => events.push(event) });
+
+    expect(design).toBe(current);
+    expect(mockRepair).not.toHaveBeenCalled();
+    const note = events.find((event) => event.type === "note");
+    expect(note).toMatchObject({ type: "note", tone: "warn" });
+  });
 });
