@@ -1,4 +1,4 @@
-# RackVerse verification and Mubit evaluation
+# RackOS verification and Mubit evaluation
 
 ## Local engineering gate
 
@@ -22,7 +22,7 @@ Seeds 1 onward are for training and lesson collection. Seeds 1000 onward are hel
 
 The October 24 console snapshot has no live task or passed adapter. RepairAgent v1 scored 60% on 15 cases against an 85% target; store a new dated snapshot when that changes. The corrected paired benchmark stopped after three confirmed held-out pairs because Gemini reported its free-tier 500-request daily limit and a roughly nine-hour retry window. The older result file is explicitly marked unpaired; do not cite its A/B difference as a lesson effect. Rerun the paired benchmark when provider quota is available.
 
-For rack-level evidence, create a rack on `/`, open it, and submit a copilot prompt or Auto-repair. Returning to `/` shows that rack's Mubit call attempts, schema-valid replies, average successful-call latency, and runs whose resulting design or repair proposal had zero hard violations. The dashboard also shows the server-wide call log, including older calls that predate rack IDs. Rack-scoped metrics are tested against mixed call logs so similar rack IDs and benchmark runs cannot be attributed to the wrong rack. The design and repair API tests verify that the same run ID reaches the agent pipeline and its recorded engineering outcome.
+For rack-level evidence, create a rack on `/dashboard`, open it, and submit a copilot prompt or Auto-repair. Returning to `/dashboard` shows that rack's Mubit call attempts, schema-valid replies, average successful-call latency, and runs whose resulting design or repair proposal had zero hard violations. The dashboard also shows the server-wide call log, including older calls that predate rack IDs. Rack-scoped metrics are tested against mixed call logs so similar rack IDs and benchmark runs cannot be attributed to the wrong rack. The design and repair API tests verify that the same run ID reaches the agent pipeline and its recorded engineering outcome.
 
 In the Studio, start from a rack with real servers and A/B power equipment, then select each **Break it** preset. The power cut should show `POWER_BUDGET_EXCEEDED` when load exceeds 70% of the former allocation; the B-side PDU failure should show `REDUNDANCY_SINGLE_FEED`; and the CapEx cut should show `BUDGET_EXCEEDED` when the installed bill exceeds the new limit. Click **Auto-repair** and inspect every verifier decision before accepting its proposal. The Studio bar refreshes from server-recorded repair outcomes. A rack with spare capacity may absorb a preset without a hard violation, which is a valid engineering result rather than a forced failure.
 

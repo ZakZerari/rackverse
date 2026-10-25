@@ -1,0 +1,124 @@
+/* Miniature rack elevation. Sized by its container so one component serves
+   the fleet cards, the empty state and the create dialog. */
+
+.frame {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 5px;
+  border-radius: 3px;
+  background: linear-gradient(170deg, #26332f, #19231f);
+  box-shadow: inset 0 1px 0 #ffffff14, 0 12px 26px -18px #000;
+}
+
+/* The mounting rails, with EIA-style holes — the detail that makes a
+   silhouette read as a rack rather than a bar chart. */
+.rail {
+  width: 5px;
+  flex: none;
+  border-radius: 1px;
+  background-color: #2f3d38;
+  background-image: repeating-linear-gradient(to bottom, #0d1412 0 2px, transparent 2px 6px);
+  box-shadow: inset -1px 0 0 #ffffff12;
+}
+
+.rail[data-side="fed"] {
+  background-color: #3a4a3c;
+  box-shadow: inset -1px 0 0 #d9ff7040;
+}
+
+.cavity {
+  position: relative;
+  flex: 1;
+  border-radius: 2px;
+  background: #0d1412;
+  box-shadow: inset 0 0 10px #0009;
+  overflow: hidden;
+}
+
+.device {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  min-height: 2px;
+  border-radius: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 2px;
+  background: var(--tone, #51635b);
+  box-shadow: inset 0 1px 0 #ffffff2e, inset 0 -1px 0 #0000003d;
+  /* Devices settle in when a card mounts; see .frame animation below. */
+  animation: seat 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes seat {
+  from { opacity: 0; transform: translateX(22%); }
+  to { opacity: 1; transform: none; }
+}
+
+.server { --tone: linear-gradient(180deg, #8fb4e8, #5d86bd); }
+.switchDevice { --tone: linear-gradient(180deg, #c4bbff, #8c80d8); }
+.storage { --tone: linear-gradient(180deg, #8fe3c2, #4fa585); }
+.ups { --tone: linear-gradient(180deg, #ffd98d, #d0a04a); }
+.pdu { --tone: linear-gradient(180deg, #e0b878, #a87f3e); }
+.patch { --tone: linear-gradient(180deg, #8c9a94, #5d6b65); }
+.blank { --tone: linear-gradient(180deg, #3d4a45, #2b3631); }
+
+.faulted {
+  --tone: linear-gradient(180deg, #ff9d85, #e05740);
+  box-shadow: inset 0 1px 0 #ffffff3d, 0 0 0 1px #ff7a6688;
+}
+
+.led {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #0c1a12;
+  opacity: 0.55;
+}
+
+/* Only the hovered card's rack wakes up — ambient blinking across a whole
+   grid is noise, not life. The hook is a stable global class the card sets,
+   because the card lives in a different CSS module and its own class name
+   is hashed. */
+:global(.rack-card):hover .led,
+:global(.rack-card):focus-within .led {
+  background: #d9ff70;
+  opacity: 1;
+  animation: wake 1.4s steps(1, end) infinite;
+}
+
+@keyframes wake {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.emptyHint {
+  position: absolute;
+  inset: 18% 1px auto;
+  height: 2px;
+  border-radius: 1px;
+  background: repeating-linear-gradient(90deg, #ffffff1f 0 4px, transparent 4px 9px);
+}
+
+.frame[data-empty="true"] .cavity {
+  background: repeating-linear-gradient(to bottom, #101814 0 3px, #0d1412 3px 7px);
+}
+
+.label {
+  position: absolute;
+  left: 7px;
+  bottom: -16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: #7e8f86;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .device { animation: none; }
+  :global(.rack-card):hover .led { animation: none; }
+}

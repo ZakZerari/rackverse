@@ -3,6 +3,7 @@ import { equipmentSchema, rackSettingsSchema } from "@/lib/configuration";
 import { RequirementsSchema } from "@/lib/schemas";
 import type { Design, Requirements } from "@/lib/types";
 
+/** Pre-RackOS namespace, kept so already-saved work still migrates. See FLEET_KEY. */
 export const WORKSPACE_KEY = "rackverse.workspace.v1";
 
 export const designSchema = z.object({

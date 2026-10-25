@@ -1,4 +1,4 @@
-# RackVerse
+# RackOS
 
 A multi-agent AI server-rack designer, built for Mubit "Night Shift" (London).
 
@@ -21,7 +21,7 @@ npm run check:llm            # enforces that only src/lib/llm.ts talks to an LLM
 npm run dev                  # http://localhost:3000
 ```
 
-The main page is a fleet dashboard: create racks, review each rack's engineering checks and capacity, and open one to edit it. It also shows rack-scoped Mubit call counts, parsed replies, latency and deterministically verified run outcomes when calls have been recorded. Rack designs, conversations and version history are saved in browser storage; the earlier single-rack workspace migrates automatically. Mubit evidence is stored in this server's local JSONL logs, so it is separate from browser-saved designs.
+The landing page at `/` explains the problem, agent workflow, Mubit learning layer, intended users and measured evidence. Its interactive 42U rack preview uses the real catalog and validator; a power cut shows the resulting hard violation, and **Repair in Studio** creates that scenario as a saved rack. The fleet dashboard at `/dashboard` presents rack health, capacity and rack-scoped agent evidence. You can search or filter racks, and the **New rack** dialog lets you choose a 24U, 42U or 48U cabinet before opening the editor. Designs, conversations and version history are saved in browser storage; existing `rackverse.*` storage keys are retained so earlier work still loads under the RackOS brand. Mubit evidence is stored in this server's local JSONL logs, separate from browser-saved designs.
 
 In the Studio, **Rack settings** changes height, mounting depth, load rating and power budget. **Add equipment** creates a device with editable type, price, dimensions, weight, power, supply capacity, outlets, PSUs and network ports. Built-in devices can be edited and reset to their source specs. Edits update the checks, totals, views and AI catalog. On smaller screens, use the Equipment, Rack and Copilot tabs.
 

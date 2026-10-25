@@ -47,7 +47,7 @@ export default function StudioPage({ rackId }: { rackId: string }) {
   useEffect(() => {
     if (!hydrated) return;
     const rack = useFleetStore.getState().racks.find((entry) => entry.id === rackId);
-    if (!rack) { router.replace("/"); return; }
+    if (!rack) { router.replace("/dashboard"); return; }
     useRackStore.getState().loadSnapshot(rack);
     useFleetStore.getState().setActiveRackId(rackId);
     const unsubscribe = useRackStore.subscribe((state) => {
@@ -125,13 +125,13 @@ export default function StudioPage({ rackId }: { rackId: string }) {
       <div className="flex h-dvh flex-col overflow-hidden">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-panel px-3 py-2">
           <div className="flex items-baseline gap-2">
-            <Link href="/" className="text-sm font-bold tracking-tight hover:text-primary">RackVerse</Link>
+            <Link href="/" className="text-sm font-bold tracking-tight hover:text-primary">RackOS</Link>
             <span className="hidden font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:inline">
               AI proposes · code decides
             </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/" />}>
+            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/dashboard" />}>
               Dashboard
             </Button>
             <RackSettingsPanel />

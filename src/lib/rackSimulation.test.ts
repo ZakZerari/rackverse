@@ -4,6 +4,7 @@ import { catalogItemFor } from "@/lib/catalog";
 import { removeEquipment, resetEquipment, updateRack, upsertEquipment } from "@/lib/configuration";
 import { designTotals } from "@/lib/summary";
 import { applyChaosPreset } from "@/lib/scenarios";
+import { createDemoRack } from "@/lib/demoRack";
 import type { CatalogItem, Design, Requirements } from "@/lib/types";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import { verifyPatch } from "@/lib/verify";
@@ -11,30 +12,10 @@ import { parseWorkspace, serializeWorkspace } from "@/lib/workspace";
 
 const serverId = "supermicro-superserver-1027r-wrf";
 const switchId = "brocade-icx-6430-48";
-const storageId = "synology-rs1221";
 const pduId = "apc-ap7868";
 
 function realisticRack(): { design: Design; requirements: Requirements } {
-  const placements = Array.from({ length: 6 }, (_, index) => ({
-    id: `server-${index + 1}`, catalogId: serverId, startU: index + 1, face: "front" as const,
-  }));
-  const design: Design = {
-    rack: { id: "rack-1", name: "Production virtualization", heightU: 42,
-      mountingDepthMm: 1000, maxLoadKg: 500, powerBudgetW: 6000 },
-    placements: [
-      ...placements,
-      { id: "switch", catalogId: switchId, startU: 7, face: "front" },
-      { id: "storage", catalogId: storageId, startU: 8, face: "front" },
-      { id: "pdu-a", catalogId: pduId, startU: 1, face: "rear", feed: "A" },
-      { id: "pdu-b", catalogId: pduId, startU: 1, face: "rear", feed: "B" },
-    ],
-    version: 1,
-  };
-  const requirements: Requirements = {
-    rackHeightU: 42, powerBudgetW: 6000, budgetUsd: 40000, redundantPower: true,
-    required: [{ category: "server", qty: 6 }, { category: "switch", qty: 1 }, { category: "storage", qty: 1 }],
-  };
-  return { design, requirements };
+  return createDemoRack("rack-1");
 }
 
 function codes(design: Design, requirements: Requirements): string[] {

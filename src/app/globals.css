@@ -92,41 +92,48 @@
 }
 
 .dark {
-  /* Cool near-black with a blue cast — reads as "instrumentation", not "void" */
-  --background: oklch(0.165 0.012 255);
-  --foreground: oklch(0.93 0.008 250);
-  --panel: oklch(0.197 0.013 255);
-  --card: oklch(0.218 0.014 255);
-  --card-foreground: oklch(0.93 0.008 250);
-  --popover: oklch(0.218 0.014 255);
-  --popover-foreground: oklch(0.93 0.008 250);
-  --primary: oklch(0.72 0.14 225);
-  --primary-foreground: oklch(0.16 0.012 255);
-  --secondary: oklch(0.27 0.016 255);
-  --secondary-foreground: oklch(0.93 0.008 250);
-  --muted: oklch(0.26 0.014 255);
-  --muted-foreground: oklch(0.67 0.014 253);
-  --accent: oklch(0.3 0.03 230);
-  --accent-foreground: oklch(0.95 0.008 250);
-  --destructive: oklch(0.68 0.19 22);
-  --ok: oklch(0.72 0.15 158);
-  --warn: oklch(0.79 0.14 78);
-  --border: oklch(0.3 0.015 255);
-  --input: oklch(0.32 0.016 255);
-  --ring: oklch(0.72 0.14 225);
-  --chart-1: oklch(0.72 0.14 225);
-  --chart-2: oklch(0.72 0.12 190);
-  --chart-3: oklch(0.72 0.15 158);
-  --chart-4: oklch(0.79 0.14 78);
-  --chart-5: oklch(0.68 0.16 305);
-  --sidebar: oklch(0.197 0.013 255);
-  --sidebar-foreground: oklch(0.93 0.008 250);
-  --sidebar-primary: oklch(0.72 0.14 225);
-  --sidebar-primary-foreground: oklch(0.16 0.012 255);
-  --sidebar-accent: oklch(0.3 0.03 230);
-  --sidebar-accent-foreground: oklch(0.95 0.008 250);
-  --sidebar-border: oklch(0.3 0.015 255);
-  --sidebar-ring: oklch(0.72 0.14 225);
+  /* RackOS. The Studio used to run a blue "instrumentation" palette while the
+     marketing pages ran lime-on-deep-green, so moving between them felt like
+     two products. These are the same tokens the landing page and workspace
+     use, which is why restyling the whole Studio is a variable change rather
+     than a component sweep.
+
+     The chart ramp is deliberately the category ramp: a server is the same
+     blue in a dashboard thumbnail, the 2D elevation and the 3D view. */
+  --background: #11191b;
+  --foreground: #eef2e8;
+  --panel: #16211f;
+  --card: #1b2724;
+  --card-foreground: #eef2e8;
+  --popover: #1b2724;
+  --popover-foreground: #eef2e8;
+  --primary: #d9ff70;
+  --primary-foreground: #10180f;
+  --secondary: #24322e;
+  --secondary-foreground: #eef2e8;
+  --muted: #1f2c28;
+  --muted-foreground: #a7bbb1;
+  --accent: #27362f;
+  --accent-foreground: #f2f6ec;
+  --destructive: #ff7a66;
+  --ok: #a9e85f;
+  --warn: #ffad8d;
+  --border: #2c3b36;
+  --input: #32423c;
+  --ring: #d9ff70;
+  --chart-1: #8fb4e8; /* server  */
+  --chart-2: #8fe3c2; /* spare   */
+  --chart-3: #8fe3c2; /* storage */
+  --chart-4: #ffd98d; /* ups/pdu */
+  --chart-5: #c4bbff; /* switch  */
+  --sidebar: #16211f;
+  --sidebar-foreground: #eef2e8;
+  --sidebar-primary: #d9ff70;
+  --sidebar-primary-foreground: #10180f;
+  --sidebar-accent: #27362f;
+  --sidebar-accent-foreground: #f2f6ec;
+  --sidebar-border: #2c3b36;
+  --sidebar-ring: #d9ff70;
 }
 
 @layer base {
@@ -180,21 +187,21 @@
   /* One hole per 1/3 U. --u-px is set by the component so the pattern stays
      locked to the rack units no matter what zoom we render at. */
   .rack-rail {
-    background-color: oklch(0.24 0.012 255);
+    background-color: #2f3d38;
     background-image: repeating-linear-gradient(
       to bottom,
-      oklch(0.12 0.01 255) 0 3px,
-      oklch(0.3 0.014 255 / 0.5) 3px 4px,
+      #0d1412 0 3px,
+      #3a4a44cc 3px 4px,
       transparent 4px calc(var(--u-px, 22px) / 3)
     );
     background-position: 0 calc(var(--u-px, 22px) / 6);
     box-shadow:
-      inset -1px 0 0 oklch(0.34 0.015 255 / 0.8),
-      inset 1px 0 0 oklch(0.1 0.01 255 / 0.6);
+      inset -1px 0 0 #42534ccc,
+      inset 1px 0 0 #0a100e99;
   }
 
   .rack-cavity {
-    background-color: oklch(0.135 0.011 255);
+    background-color: #0d1412;
     box-shadow: inset 0 1px 10px oklch(0 0 0 / 0.55);
   }
 
@@ -209,7 +216,7 @@
   }
 
   .rack-shell {
-    background: linear-gradient(180deg, oklch(0.27 0.014 255), oklch(0.21 0.013 255));
+    background: linear-gradient(180deg, #26332f, #19231f);
     box-shadow:
       0 1px 0 oklch(1 0 0 / 0.07) inset,
       0 18px 40px -22px oklch(0 0 0 / 0.9);

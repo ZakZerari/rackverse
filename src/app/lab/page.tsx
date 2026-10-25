@@ -134,12 +134,12 @@ export default function LabPage() {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold">RackVerse Lab</h1>
+          <h1 className="text-lg font-bold">RackOS Lab</h1>
           <p className="text-sm text-muted-foreground">
             What&apos;s actually measured, locally vs. Mubit-verified.
           </p>
         </div>
-        <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/" />}>
+        <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/dashboard" />}>
           Dashboard
         </Button>
       </header>

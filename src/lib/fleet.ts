@@ -6,6 +6,11 @@ import type { Design, Requirements } from "@/lib/types";
 import { designSchema, parseWorkspace, WORKSPACE_KEY } from "@/lib/workspace";
 import { RequirementsSchema } from "@/lib/schemas";
 
+/**
+ * Keeps the pre-RackOS namespace on purpose. These keys are the only copy of
+ * a person's saved racks; renaming them to match the brand would silently
+ * orphan every design already sitting in a browser.
+ */
 export const FLEET_KEY = "rackverse.fleet.v2";
 
 export interface RackRecord {

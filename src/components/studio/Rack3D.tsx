@@ -13,14 +13,16 @@ const U_H = 0.4445;
 const RACK_W = 4.826;
 const DEPTH_SCALE = 0.004; // mm -> scene units
 
+// Same ramp as the dashboard thumbnails and the 2D elevation, so a device
+// keeps its colour wherever you look at it.
 const CATEGORY_COLOR: Record<Category, string> = {
-  server: "#4a9eda",
-  switch: "#a874e8",
-  storage: "#3fb98a",
-  ups: "#e0a33e",
-  pdu: "#c98a2e",
-  patch: "#7a8595",
-  blank: "#3a424f",
+  server: "#8fb4e8",
+  switch: "#c4bbff",
+  storage: "#8fe3c2",
+  ups: "#ffd98d",
+  pdu: "#e0b878",
+  patch: "#8c9a94",
+  blank: "#3d4a45",
 };
 
 function DeviceBox({
@@ -89,13 +91,13 @@ function DeviceBox({
     >
       <boxGeometry args={[RACK_W, height, depth]} />
       <meshStandardMaterial
-        color={violated ? "#e5484d" : CATEGORY_COLOR[item.category]}
-        emissive={violated ? "#e5484d" : selected ? "#5aa9e6" : "#000000"}
+        color={violated ? "#ff7a66" : CATEGORY_COLOR[item.category]}
+        emissive={violated ? "#ff7a66" : selected ? "#d9ff70" : "#000000"}
         emissiveIntensity={violated ? 0.4 : selected ? 0.4 : 0}
         metalness={0.3}
         roughness={0.55}
       />
-      <Edges threshold={15} color={selected ? "#9ecbf0" : "#10151c"} />
+      <Edges threshold={15} color={selected ? "#d9ff70" : "#0d1412"} />
     </mesh>
   );
 }
@@ -116,7 +118,7 @@ function RackFrame({ heightU }: { heightU: number }) {
       ].map(([x, z], i) => (
         <mesh key={i} position={[x, 0, z]}>
           <boxGeometry args={[postW, h, postW]} />
-          <meshStandardMaterial color="#2a313c" metalness={0.6} roughness={0.4} />
+          <meshStandardMaterial color="#2c3a35" metalness={0.6} roughness={0.4} />
         </mesh>
       ))}
 
@@ -124,7 +126,7 @@ function RackFrame({ heightU }: { heightU: number }) {
       {[h / 2 + postW / 2, -h / 2 - postW / 2].map((y, i) => (
         <mesh key={i} position={[0, y, 0]}>
           <boxGeometry args={[RACK_W + postW * 2, postW, depth + postW]} />
-          <meshStandardMaterial color="#232a34" metalness={0.5} roughness={0.5} />
+          <meshStandardMaterial color="#243029" metalness={0.5} roughness={0.5} />
         </mesh>
       ))}
     </group>
@@ -145,7 +147,7 @@ function URulers({ heightU }: { heightU: number }) {
       {marks.map((u) => (
         <mesh key={u} position={[-RACK_W / 2 - 0.16, (u - 0.5 - heightU / 2) * U_H, 1.72]}>
           <boxGeometry args={[0.22, 0.04, 0.04]} />
-          <meshStandardMaterial color="#6b7684" emissive="#6b7684" emissiveIntensity={0.3} />
+          <meshStandardMaterial color="#7e8f86" emissive="#7e8f86" emissiveIntensity={0.3} />
         </mesh>
       ))}
     </group>
@@ -175,7 +177,7 @@ function ScanPlane({ heightU, active }: { heightU: number; active: boolean }) {
   return (
     <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[RACK_W + 1.4, 4]} />
-      <meshBasicMaterial color="#5aa9e6" transparent opacity={0} depthWrite={false} side={DoubleSide} />
+      <meshBasicMaterial color="#d9ff70" transparent opacity={0} depthWrite={false} side={DoubleSide} />
     </mesh>
   );
 }
@@ -213,7 +215,7 @@ function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<strin
       <CameraRig heightU={heightU} />
       <ambientLight intensity={0.55} />
       <directionalLight position={[6, 10, 8]} intensity={1.5} castShadow />
-      <directionalLight position={[-6, 4, -8]} intensity={0.5} color="#6aa6d8" />
+      <directionalLight position={[-6, 4, -8]} intensity={0.5} color="#9fd8b0" />
 
       <group onPointerMissed={() => selectPlacement(null)}>
         <RackFrame heightU={heightU} />
@@ -232,7 +234,7 @@ function Scene({ design, violatedIds }: { design: Design; violatedIds: Set<strin
         ))}
       </group>
 
-      <gridHelper args={[26, 26, "#2a313c", "#1d232c"]} position={[0, -(heightU * U_H) / 2 - 0.3, 0]} />
+      <gridHelper args={[26, 26, "#2c3a35", "#1b2522"]} position={[0, -(heightU * U_H) / 2 - 0.3, 0]} />
       {/* Grounds the rack on the floor plane — without it the whole thing
           floats. Local renderer, no asset to fetch. */}
       <ContactShadows

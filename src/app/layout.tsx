@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RackVerse",
+  title: "RackOS",
   description: "A multi-agent AI server-rack designer, built through Mubit.",
 };
 
