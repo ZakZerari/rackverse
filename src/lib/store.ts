@@ -290,13 +290,28 @@ export const useRackStore = create<RackStore>((set, get) => ({
         });
         get().revalidate();
         const hard = get().violations.filter((v) => v.severity === "hard").length;
-        patchCurrentTurn((turn) => ({
-          ...turn,
-          status: "done",
-          summary: `${event.design.placements.length} devices · ${
-            hard === 0 ? "all checks passing" : `${hard} hard violation(s)`
-          }`,
-        }));
+        patchCurrentTurn((turn) => {
+          // This turn's summary becomes the next turn's `history` entry (see
+          // CopilotPanel), which is the only memory a follow-up message has
+          // of what just happened. The generic device-count line is fine
+          // normally, but it silently discarded a feasibility warning — so
+          // "ok drop it" after "dropping redundant power would fit the
+          // budget" had no "it" to resolve: the explanation never left the
+          // UI. A warn note from THIS turn (currently only the feasibility
+          // guard in orchestrate.ts produces one) carries the one fact a
+          // reply might reference, so it wins over the generic summary.
+          const warning = turn.items.findLast((item) => item.kind === "note" && item.tone === "warn");
+          return {
+            ...turn,
+            status: "done",
+            summary:
+              warning && warning.kind === "note"
+                ? warning.detail
+                : `${event.design.placements.length} devices · ${
+                    hard === 0 ? "all checks passing" : `${hard} hard violation(s)`
+                  }`,
+          };
+        });
         break;
       }
 

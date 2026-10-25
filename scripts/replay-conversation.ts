@@ -8,7 +8,7 @@
 // empty rack and threw away everything they had.
 import { designFromPrompt } from "@/lib/orchestrate";
 import { catalogItemFor } from "@/lib/catalog";
-import { planTurn, summariseRequirements, type HistoryEntry } from "@/lib/turn";
+import { compactHistory, planTurn, summariseRequirements, type HistoryEntry } from "@/lib/turn";
 import { hardViolations, validateDesign } from "@/lib/validate";
 import type { Design, Requirements } from "@/lib/types";
 
@@ -46,22 +46,37 @@ async function main() {
     console.log(`\n${"=".repeat(72)}\nTURN ${index + 1}: "${message}"\n  route: ${plan.mode} — ${plan.reason}`);
 
     const started = Date.now();
+    // A warn note (e.g. the feasibility guard) carries the one fact a
+    // follow-up might reference — "ok drop it" needs an "it" — so it has to
+    // win the turn's `outcome`, the same precedence store.ts gives it for
+    // the real UI. Mirroring that here is the point: this script exists to
+    // catch exactly this class of bug against the live model, not just
+    // pretty-print a run.
+    let warnDetail: string | undefined;
     const result = await designFromPrompt(message, {
       currentDesign: design,
       currentRequirements: requirements,
-      history: [...history],
+      // compactHistory, not the raw array: the browser client truncates
+      // before sending, so replaying with the untruncated array would miss
+      // exactly the bug class this script exists to catch (a long outcome
+      // silently cut mid-sentence).
+      history: compactHistory(history),
       emit: (event) => {
         if (event.type === "agent:done") console.log(`  · ${event.agent} ${(event.latencyMs / 1000).toFixed(1)}s`);
         if (event.type === "agent:error") console.log(`  ! ${event.agent} ${event.error}`);
         if (event.type === "verifier:decision") console.log(`  · Verifier ${event.accepted ? "accepted" : "REJECTED"} — ${event.reason}`);
-        if (event.type === "note") console.log(`  ⚠ ${event.label}: ${event.detail}`);
+        if (event.type === "note") {
+          console.log(`  ⚠ ${event.label}: ${event.detail}`);
+          if (event.tone === "warn") warnDetail = event.detail;
+        }
       },
     });
 
     design = result.design;
     requirements = result.requirements;
     const hard = hardViolations(validateDesign(design, requirements)).length;
-    const outcome = `${design.placements.length} devices · ${hard === 0 ? "all checks passing" : `${hard} hard violation(s)`}`;
+    const outcome =
+      warnDetail ?? `${design.placements.length} devices · ${hard === 0 ? "all checks passing" : `${hard} hard violation(s)`}`;
     history.push({ user: message, outcome });
 
     console.log(`  brief: ${summariseRequirements(requirements)}`);

@@ -72,9 +72,22 @@ describe("compactHistory", () => {
   });
 
   it("trims long messages — history rides along on every later request", () => {
-    const [entry] = compactHistory([{ user: "x".repeat(500), outcome: "y".repeat(500) }]);
-    expect(entry.user).toHaveLength(160);
-    expect(entry.outcome).toHaveLength(160);
+    const [entry] = compactHistory([{ user: "x".repeat(900), outcome: "y".repeat(900) }]);
+    expect(entry.user).toHaveLength(480);
+    expect(entry.outcome).toHaveLength(480);
+  });
+
+  it("carries a full infeasibility explanation whole, not cut mid-sentence", () => {
+    // The exact failure this default exists to prevent: at the old 160-char
+    // limit this outcome lost everything from "within budget" onward, so a
+    // follow-up "ok drop it" had no "it" left to resolve.
+    const outcome =
+      "Even the cheapest valid configuration costs about $30,600 — $5,600 over the $25,000 budget. " +
+      "Dropping redundant A/B power would bring the minimum to about $22,100 — within budget. " +
+      "At $3,100 for the cheapest dual-PSU server, the budget fits about 6 instead of 8.";
+    const [entry] = compactHistory([{ user: "stay under 25k", outcome }]);
+    expect(entry.outcome).toBe(outcome);
+    expect(entry.outcome).toContain("within budget");
   });
 });
 

@@ -73,8 +73,19 @@ export function planTurn(design: Design | null, message: string): TurnPlan {
   };
 }
 
-/** Oldest first, newest last — the last `limit` exchanges, trimmed for prompt size. */
-export function compactHistory(history: HistoryEntry[], limit = 6, maxChars = 160): HistoryEntry[] {
+/**
+ * Oldest first, newest last — the last `limit` exchanges, trimmed for prompt
+ * size.
+ *
+ * maxChars was 160 until a real outcome got cut mid-sentence: an
+ * infeasibility explanation ("...the minimum to about $22,10") lost the
+ * "0 — within budget" that made it actionable, so the next turn's "ok drop
+ * it" had no "it" to resolve. 480 comfortably covers that explanation even
+ * in its worst case (every reason and suggestion firing at once, ~450
+ * chars) — a few hundred extra tokens across 6 turns is cheap next to
+ * silently discarding the one thing a follow-up message needs.
+ */
+export function compactHistory(history: HistoryEntry[], limit = 6, maxChars = 480): HistoryEntry[] {
   return history.slice(-limit).map((entry) => ({
     user: entry.user.slice(0, maxChars),
     outcome: entry.outcome.slice(0, maxChars),
